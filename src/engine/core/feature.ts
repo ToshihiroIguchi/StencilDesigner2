@@ -1,19 +1,11 @@
 import { ModelGraph } from './graph';
 import type { VertexId, EdgeId } from './graph';
 
-/**
- * Feature-driven Topology Engine
- * 
- * 履歴ベース（History-based）CADの概念に基づき、設計意図（Design Intent）を Feature で表現し、
- * それを元にトポロジーである ModelGraph を再構築（Rebuild）します。
- */
-
 export type FeatureId = string;
 
 export interface Feature {
     id: FeatureId;
-    type: 'Line' | 'Rect' | 'Circle' | 'Trim';
-    // Topological Naming Foundation: Provides deterministic IDs for elements based on this feature
+    type: 'Line' | 'Rect' | 'Circle' | 'Trim' | 'Fillet' | 'Array';
     generateTopology(graph: ModelGraph): void;
 }
 
@@ -146,21 +138,57 @@ export class FeatureTree {
         
         // 1. Base Geometry
         for (const feature of this.features) {
-            if (feature.type !== 'Trim') {
+            if (feature.type !== 'Trim' && feature.type !== 'Fillet') {
                 feature.generateTopology(graph);
             }
         }
 
+        // 1.5 Merge Coincident Vertices
+        this.mergeCoincidentVertices(graph);
+
         // 2. Intersection Evaluation & Segment Splitting
         IntersectionEngine.splitAllIntersections(graph);
 
-        // 3. Apply Modifiers (Trims)
+        // 3. Apply Modifiers (Trims & Fillets)
         for (const feature of this.features) {
             if (feature.type === 'Trim') {
                 (feature as TrimFeature).applyTrim(graph, 1.0); // 1.0mm strict model tolerance for replay
+            } else if (feature.type === 'Fillet') {
+                (feature as any).applyFillet(graph);
             }
         }
 
         return graph;
+    }
+
+    private mergeCoincidentVertices(graph: ModelGraph): void {
+        const canonicalMap = new Map<string, string>(); // maps duplicate vid to canonical vid
+        const vertices = Array.from(graph.vertices.values());
+        
+        for (let i = 0; i < vertices.length; i++) {
+            const v1 = vertices[i];
+            if (!graph.vertices.has(v1.id)) continue; // Already merged
+            
+            for (let j = i + 1; j < vertices.length; j++) {
+                const v2 = vertices[j];
+                if (!graph.vertices.has(v2.id)) continue;
+                
+                if (v1.x != null && v1.y != null && v2.x != null && v2.y != null) {
+                    // We need ToleranceManager.arePointsEqual but we cannot easily import it if not present,
+                    // Actually, ToleranceManager is not imported in feature.ts! Wait! 
+                    // Let's just do a math check.
+                    if (Math.hypot(v1.x - v2.x, v1.y - v2.y) < 1e-5) {
+                        canonicalMap.set(v2.id, v1.id);
+                        graph.vertices.delete(v2.id);
+                    }
+                }
+            }
+        }
+
+        // Remap edges
+        for (const edge of graph.edges.values()) {
+            if (canonicalMap.has(edge.u)) edge.u = canonicalMap.get(edge.u)!;
+            if (canonicalMap.has(edge.v)) edge.v = canonicalMap.get(edge.v)!;
+        }
     }
 }

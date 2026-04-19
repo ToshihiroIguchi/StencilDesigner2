@@ -114,10 +114,37 @@ export class CanvasRenderer {
           const pt1 = this.transformer.modelToScreen(v1.x, v1.y);
           const pt2 = this.transformer.modelToScreen(v2.x, v2.y);
           
-          const line = new paper.Path.Line(
-              new paper.Point(pt1.x, pt1.y),
-              new paper.Point(pt2.x, pt2.y)
-          );
+          let path: paper.Path;
+          if (edge.arcData) {
+              // Convert Maker.js Arc definition to Paper.js points
+              // Note: makerjs arc startAngle/endAngle are in degrees, counter-clockwise from 3 o'clock.
+              // Paper.js Arc takes start, through, end points.
+              const startAngleRad = edge.arcData.startAngle * Math.PI / 180;
+              const endAngleRad = edge.arcData.endAngle * Math.PI / 180;
+              let midAngleRad = startAngleRad + (endAngleRad - startAngleRad) / 2;
+              
+              // Handle angle wrapping (makerjs arcs are CCW by default)
+              if (endAngleRad < startAngleRad) {
+                  midAngleRad = startAngleRad + (endAngleRad + 2 * Math.PI - startAngleRad) / 2;
+              }
+
+              const mx = edge.arcData.origin[0] + edge.arcData.radius * Math.cos(midAngleRad);
+              const my = edge.arcData.origin[1] + edge.arcData.radius * Math.sin(midAngleRad);
+              
+              // Project mid point to screen
+              const ptMid = this.transformer.modelToScreen(mx, my);
+
+              path = new paper.Path.Arc(
+                  new paper.Point(pt1.x, pt1.y),
+                  new paper.Point(ptMid.x, ptMid.y),
+                  new paper.Point(pt2.x, pt2.y)
+              );
+          } else {
+              path = new paper.Path.Line(
+                  new paper.Point(pt1.x, pt1.y),
+                  new paper.Point(pt2.x, pt2.y)
+              );
+          }
           
           let selected = false;
           if (this.selectionManager) {
@@ -128,10 +155,9 @@ export class CanvasRenderer {
           }
 
           if (selected) {
-              line.strokeColor = new paper.Color('#00aaff');
-              line.strokeWidth = 3;
+              path.strokeColor = new paper.Color('#00aaff');
+              path.strokeWidth = 3;
               
-              // Draw Vertex Handles
               const handle1 = new paper.Path.Circle(new paper.Point(pt1.x, pt1.y), 4);
               handle1.fillColor = new paper.Color('#ffffff');
               handle1.strokeColor = new paper.Color('#00aaff');
@@ -144,10 +170,10 @@ export class CanvasRenderer {
               handle2.strokeWidth = 1.5;
               handle2.strokeScaling = false;
           } else {
-              line.strokeColor = new paper.Color('#000000');
-              line.strokeWidth = 2;
+              path.strokeColor = new paper.Color('#000000');
+              path.strokeWidth = 2;
           }
-          line.strokeScaling = false;
+          path.strokeScaling = false;
       }
       
       paper.view.draw();
