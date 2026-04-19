@@ -11,6 +11,12 @@ export interface Edge {
   id: EdgeId;
   u: VertexId;
   v: VertexId;
+  arcData?: {
+    origin: number[]; // [x, y]
+    radius: number;
+    startAngle: number;
+    endAngle: number;
+  };
 }
 
 export class ModelGraph {

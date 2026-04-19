@@ -1,10 +1,12 @@
 import paper from 'paper';
 import { ViewState, CoordinateTransformer, ToleranceManager } from '../core/viewport';
 import { ModelGraph } from '../core/graph';
+import { SelectionManager } from './selection';
 
 export class CanvasRenderer {
   public viewState: ViewState;
   public transformer: CoordinateTransformer;
+  public selectionManager?: SelectionManager;
   private canvasElement: HTMLCanvasElement;
   private currentGraph: ModelGraph | null = null;
   private snapLayer: paper.Layer;
@@ -116,8 +118,35 @@ export class CanvasRenderer {
               new paper.Point(pt1.x, pt1.y),
               new paper.Point(pt2.x, pt2.y)
           );
-          line.strokeColor = new paper.Color('#000000');
-          line.strokeWidth = 2;
+          
+          let selected = false;
+          if (this.selectionManager) {
+              const fId = this.selectionManager.extractFeatureIdFromElementId(edge.id);
+              if (fId && this.selectionManager.isSelected(fId)) {
+                  selected = true;
+              }
+          }
+
+          if (selected) {
+              line.strokeColor = new paper.Color('#00aaff');
+              line.strokeWidth = 3;
+              
+              // Draw Vertex Handles
+              const handle1 = new paper.Path.Circle(new paper.Point(pt1.x, pt1.y), 4);
+              handle1.fillColor = new paper.Color('#ffffff');
+              handle1.strokeColor = new paper.Color('#00aaff');
+              handle1.strokeWidth = 1.5;
+              handle1.strokeScaling = false;
+              
+              const handle2 = new paper.Path.Circle(new paper.Point(pt2.x, pt2.y), 4);
+              handle2.fillColor = new paper.Color('#ffffff');
+              handle2.strokeColor = new paper.Color('#00aaff');
+              handle2.strokeWidth = 1.5;
+              handle2.strokeScaling = false;
+          } else {
+              line.strokeColor = new paper.Color('#000000');
+              line.strokeWidth = 2;
+          }
           line.strokeScaling = false;
       }
       

@@ -13,6 +13,10 @@ export class ToleranceManager {
     return Math.round(value / this.EPSILON) * this.EPSILON;
   }
 
+  static arePointsEqual(x1: number, y1: number, x2: number, y2: number): boolean {
+    return Math.hypot(x1 - x2, y1 - y2) <= this.EPSILON;
+  }
+
   static getGridInterval(zoom: number): number {
     // Basic dynamic grid interval based on zoom level (e.g., 1, 10, 100 mm)
     if (zoom > 100) return 0.1;

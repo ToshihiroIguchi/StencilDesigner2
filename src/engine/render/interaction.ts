@@ -5,9 +5,11 @@ import type { SnapResult } from '../core/snap';
 import { CanvasRenderer } from './canvas';
 import { ModelGraph } from '../core/graph';
 import { CoordinateTransformer } from '../core/viewport';
+import { SelectionManager } from './selection';
+import { TrimTool } from './trim_tool';
 
 export class InteractionController {
-    public activeTool: 'Line' | 'Rect' | 'Select' = 'Select';
+    public activeTool: 'Line' | 'Rect' | 'Select' | 'Trim' = 'Select';
     private currentStart: {x: number, y: number} | null = null;
     private featureIdCounter = 0;
 
@@ -16,45 +18,99 @@ export class InteractionController {
     constructor(
         private canvasRenderer: CanvasRenderer,
         private featureTree: FeatureTree,
-        private snapEngine: SnapEngine
+        private snapEngine: SnapEngine,
+        private selectionManager: SelectionManager,
+        private trimTool: TrimTool
     ) {
         // Register Paper.js Tool
         this.tool = new paper.Tool();
         this.tool.activate();
         
         this.tool.onMouseDown = (event: paper.ToolEvent) => {
-            console.log(`[Interaction] mousedown at screen X:${event.point.x}, Y:${event.point.y}`);
+            if (this.activeTool === 'Trim') return;
             if (this.activeTool === 'Select') {
-                console.log('[Interaction] Tool is Select, ignoring draw.');
+                this.currentStart = { x: event.point.x, y: event.point.y }; 
                 return;
             }
             const snapRes = this.snapEngine.snap(event.point.x, event.point.y);
             this.currentStart = snapRes.modelPt;
-            console.log(`[Interaction] snap result: ${snapRes.type}, modelPt: ${this.currentStart.x}, ${this.currentStart.y}`);
         };
 
         this.tool.onMouseDrag = (event: paper.ToolEvent) => {
-            if (!this.currentStart || this.activeTool === 'Select') return;
+            if (this.activeTool === 'Trim') return;
+            if (!this.currentStart) return;
+            if (this.activeTool === 'Select') {
+                const rect = new paper.Path.Rectangle(
+                    new paper.Point(this.currentStart.x, this.currentStart.y),
+                    event.point
+                );
+                rect.strokeColor = new paper.Color('#00aaee');
+                rect.fillColor = new paper.Color(0, 0.66, 0.93, 0.2); 
+                rect.strokeWidth = 1;
+                rect.dashArray = [4, 4];
+                rect.strokeScaling = false;
+                this.canvasRenderer.drawFeedback(rect, 'none', {x:0, y:0});
+                return;
+            }
             this.handleGhosting(event.point, event.modifiers.shift);
         };
 
         this.tool.onMouseMove = (event: paper.ToolEvent) => {
+            if (this.activeTool === 'Trim') {
+                this.trimTool.onMouseMove(event.point);
+                return;
+            }
             if (this.activeTool === 'Select') return;
-            this.handleGhosting(event.point, event.modifiers.shift); // Just to show the indicator
+            this.handleGhosting(event.point, event.modifiers.shift); 
         };
 
         this.tool.onMouseUp = (event: paper.ToolEvent) => {
-            console.log('[Interaction] mouseup triggered.');
-            if (!this.currentStart || this.activeTool === 'Select') return;
+            if (this.activeTool === 'Trim') {
+                this.trimTool.onMouseUp(event.point);
+                return;
+            }
+            if (!this.currentStart) return;
             
+            if (this.activeTool === 'Select') {
+                const startScreen = this.currentStart;
+                const endScreen = event.point;
+                const dist = Math.hypot(endScreen.x - startScreen.x, endScreen.y - startScreen.y);
+                
+                const graph = (this.canvasRenderer as any).currentGraph as ModelGraph;
+
+                if (dist < 2) { // Single click
+                    const threshold = 10 / this.canvasRenderer.viewState.zoom;
+                    const modelPt = this.canvasRenderer.transformer.screenToModel(endScreen.x, endScreen.y);
+                    const hitFeatureId = this.selectionManager.hitTestSegment(modelPt, graph, threshold);
+                    
+                    if (hitFeatureId) {
+                        this.selectionManager.select(hitFeatureId, event.modifiers.shift);
+                    } else if (!event.modifiers.shift) {
+                        this.selectionManager.clear();
+                    }
+                } else { // Box Select
+                    const p1 = this.canvasRenderer.transformer.screenToModel(startScreen.x, startScreen.y);
+                    const p2 = this.canvasRenderer.transformer.screenToModel(endScreen.x, endScreen.y);
+                    const min = { x: Math.min(p1.x, p2.x), y: Math.min(p1.y, p2.y) };
+                    const max = { x: Math.max(p1.x, p2.x), y: Math.max(p1.y, p2.y) };
+                    
+                    const found = this.selectionManager.boxSelect(min, max, graph);
+                    if (!event.modifiers.shift) this.selectionManager.clear();
+                    found.forEach(id => this.selectionManager.select(id, true));
+                }
+                
+                this.canvasRenderer.drawAll();
+                this.canvasRenderer.drawFeedback(null, 'none', {x:0, y:0});
+                this.currentStart = null;
+                return;
+            }
+            
+            // Drawing logic
             const rawSnap = this.snapEngine.snap(event.point.x, event.point.y);
             let endPt = rawSnap.modelPt;
             
             if (event.modifiers.shift) endPt = this.applyShiftConstraint(this.currentStart, endPt);
             
-            console.log(`[Interaction] finishing ${this.activeTool} from (${this.currentStart.x}, ${this.currentStart.y}) to (${endPt.x}, ${endPt.y})`);
-            
-            // Generate Feature
             const fId = `f_${this.featureIdCounter++}`;
             if (this.activeTool === 'Line') {
                 this.featureTree.addFeature(new LineFeature(fId, this.currentStart.x, this.currentStart.y, endPt.x, endPt.y));
@@ -62,9 +118,7 @@ export class InteractionController {
                 this.featureTree.addFeature(new RectFeature(fId, this.currentStart.x, this.currentStart.y, endPt.x, endPt.y));
             }
 
-            // Rebuild Model
             const graph = this.featureTree.rebuild();
-            // Update renderer state
             this.canvasRenderer.updateGraph(graph);
             this.canvasRenderer.drawFeedback(null, 'none', {x:0, y:0});
             
@@ -81,7 +135,6 @@ export class InteractionController {
                 endModel = this.applyShiftConstraint(this.currentStart, endModel);
             }
             
-            // Draw Ghost Path
             const pt1 = this.canvasRenderer.transformer.modelToScreen(this.currentStart.x, this.currentStart.y);
             const pt2 = this.canvasRenderer.transformer.modelToScreen(endModel.x, endModel.y);
             
@@ -99,7 +152,6 @@ export class InteractionController {
             const resScreen = this.canvasRenderer.transformer.modelToScreen(endModel.x, endModel.y);
             this.canvasRenderer.drawFeedback(ghost, snapRes.type, resScreen);
         } else {
-            // Just hovering, show snap indicator
             this.canvasRenderer.drawFeedback(null, snapRes.type, snapRes.screenPt);
         }
     }
@@ -109,14 +161,12 @@ export class InteractionController {
         const dy = end.y - start.y;
         
         if (this.activeTool === 'Line') {
-            // Axis constraint -> horizontal or vertical
             if (Math.abs(dx) > Math.abs(dy)) {
                 return { x: end.x, y: start.y };
             } else {
                 return { x: start.x, y: end.y };
             }
         } else if (this.activeTool === 'Rect') {
-            // Square constraint -> min dist applied to both
             const signX = Math.sign(dx) || 1;
             const signY = Math.sign(dy) || 1;
             const min = Math.min(Math.abs(dx), Math.abs(dy));
