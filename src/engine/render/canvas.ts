@@ -176,7 +176,57 @@ export class CanvasRenderer {
           path.strokeScaling = false;
       }
       
+      // Draw Dimensions
+      this.drawDimensions();
+
       paper.view.draw();
+  }
+
+  private drawDimensions(): void {
+      const interaction = (window as any).interaction;
+      if (!interaction || !interaction.featureTree) return;
+      
+      const features = interaction.featureTree.features;
+      for (const f of features) {
+          if (f.type === 'Dim') {
+              const dim = f as any;
+              const pt1 = this.transformer.modelToScreen(dim.x1, dim.y1);
+              const pt2 = this.transformer.modelToScreen(dim.x2, dim.y2);
+              
+              const group = new paper.Group();
+              
+              const line = new paper.Path.Line(new paper.Point(pt1.x, pt1.y), new paper.Point(pt2.x, pt2.y));
+              line.strokeColor = new paper.Color('#777777');
+              line.strokeWidth = 1;
+              group.addChild(line);
+
+              // Small ticks
+              const angle = Math.atan2(pt2.y - pt1.y, pt2.x - pt1.x);
+              const tickLength = 5;
+              const tick1 = new paper.Path.Line(
+                  new paper.Point(pt1.x - Math.sin(angle)*tickLength, pt1.y + Math.cos(angle)*tickLength),
+                  new paper.Point(pt1.x + Math.sin(angle)*tickLength, pt1.y - Math.cos(angle)*tickLength)
+              );
+              tick1.strokeColor = new paper.Color('#777777');
+              group.addChild(tick1);
+
+              const tick2 = new paper.Path.Line(
+                  new paper.Point(pt2.x - Math.sin(angle)*tickLength, pt2.y + Math.cos(angle)*tickLength),
+                  new paper.Point(pt2.x + Math.sin(angle)*tickLength, pt2.y - Math.cos(angle)*tickLength)
+              );
+              tick2.strokeColor = new paper.Color('#777777');
+              group.addChild(tick2);
+
+              const text = new paper.PointText(new paper.Point((pt1.x + pt2.x) / 2, (pt1.y + pt2.y) / 2 - 5));
+              text.content = dim.label;
+              text.fillColor = new paper.Color('#777777');
+              text.fontSize = 11;
+              text.justification = 'center';
+              group.addChild(text);
+
+              this.geometryLayer.addChild(group);
+          }
+      }
   }
 
   /**

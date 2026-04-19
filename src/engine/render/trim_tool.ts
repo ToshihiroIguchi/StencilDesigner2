@@ -86,7 +86,6 @@ export class TrimTool {
             const newGraph = this.featureTree.rebuild();
             this.canvasRenderer.updateGraph(newGraph);
             this.canvasRenderer.drawFeedback(null, 'none', {x: 0, y: 0});
-            console.log(`[Trim] Applied trim at model ${modelPt.x.toFixed(2)}, ${modelPt.y.toFixed(2)}`);
         }
     }
 

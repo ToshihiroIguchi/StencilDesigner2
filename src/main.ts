@@ -10,6 +10,7 @@ import { FeatureEditor } from './engine/core/editing';
 import { FilletTool } from './engine/render/fillet_tool';
 import { ArrayCopyEngine } from './engine/core/array';
 import { TrimTool } from './engine/render/trim_tool';
+import { DimensionTool } from './engine/render/dimension_tool';
 
 window.onload = () => {
     const canvasRenderer = new CanvasRenderer('main-canvas');
@@ -18,6 +19,7 @@ window.onload = () => {
     const featureEditor = new FeatureEditor(featureTree);
     const trimTool = new TrimTool(canvasRenderer, featureTree, selectionManager);
     const filletTool = new FilletTool(canvasRenderer, featureTree);
+    const dimensionTool = new DimensionTool(canvasRenderer, featureTree);
     
     // Inject dependencies into Renderer
     (canvasRenderer as any).selectionManager = selectionManager;
@@ -33,7 +35,7 @@ window.onload = () => {
         canvasRenderer.viewState
     );
 
-    const interaction = new InteractionController(canvasRenderer, featureTree, snapEngine, selectionManager, trimTool, filletTool);
+    const interaction = new InteractionController(canvasRenderer, featureTree, snapEngine, selectionManager, trimTool, filletTool, dimensionTool);
     
     const originalRebuild = featureTree.rebuild.bind(featureTree);
     featureTree.rebuild = () => {
@@ -43,18 +45,34 @@ window.onload = () => {
         return newGraph;
     };
 
-    // Keyboard Hook for Delete Command
+    const handleRebuild = () => {
+        const graph = featureTree.rebuild();
+        canvasRenderer.updateGraph(graph);
+    };
+
+    // Keyboard Listeners
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Delete' || e.key === 'Backspace' || e.key === 'Del') {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+            e.preventDefault();
+            if (featureTree.undo()) handleRebuild();
+        } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+            e.preventDefault();
+            if (featureTree.redo()) handleRebuild();
+        } else if (e.key === 'Delete' || e.key === 'Backspace') {
             if (selectionManager.selectedFeatureIds.size > 0) {
                 featureEditor.deleteFeatures(selectionManager.selectedFeatureIds);
                 selectionManager.clear();
-                
-                const graph = featureTree.rebuild();
-                canvasRenderer.updateGraph(graph);
-                console.log('[App] Deleted selection and rebuilt graph.');
+                handleRebuild();
             }
         }
+    });
+
+    // History Buttons
+    document.getElementById('btn-undo')?.addEventListener('click', () => {
+        if (featureTree.undo()) handleRebuild();
+    });
+    document.getElementById('btn-redo')?.addEventListener('click', () => {
+        if (featureTree.redo()) handleRebuild();
     });
 
     // Binding Fillet Radius update
@@ -72,11 +90,7 @@ window.onload = () => {
         const pitchY = parseFloat((document.getElementById('array-py') as HTMLInputElement).value) || 0;
         
         ArrayCopyEngine.generateFlatCopies(featureTree, selectionManager.selectedFeatureIds, rows, cols, pitchX, pitchY);
-        
-        // Rebuild Model
-        const graph = featureTree.rebuild();
-        canvasRenderer.updateGraph(graph);
-        console.log(`[Array] Copied ${selectionManager.selectedFeatureIds.size} items to ${rows}x${cols}`);
+        handleRebuild();
         selectionManager.clear();
         canvasRenderer.drawAll();
     });
@@ -98,32 +112,36 @@ window.onload = () => {
         document.getElementById('btn-export-dxf')?.addEventListener('click', () => {
             const dxf = ModelExporter.exportToDXF(graphProvider.graph);
             downloadFile(dxf, 'stencil_design.dxf', 'text/plain');
-            console.log('[App] Exported DXF');
         });
 
         document.getElementById('btn-export-svg')?.addEventListener('click', () => {
             const svg = ModelExporter.exportToSVG(graphProvider.graph);
             downloadFile(svg, 'stencil_design.svg', 'image/svg+xml');
-            console.log('[App] Exported SVG');
         });
     });
 
-    // UI Wireup
-    document.getElementById('btn-select')?.addEventListener('click', () => { interaction.activeTool = 'Select'; updateUI('Select'); });
-    document.getElementById('btn-line')?.addEventListener('click', () => { interaction.activeTool = 'Line'; updateUI('Line'); });
-    document.getElementById('btn-rect')?.addEventListener('click', () => { interaction.activeTool = 'Rect'; updateUI('Rect'); });
-    document.getElementById('btn-trim')?.addEventListener('click', () => { interaction.activeTool = 'Trim'; updateUI('Trim'); });
-    document.getElementById('btn-fillet')?.addEventListener('click', () => { interaction.activeTool = 'Fillet'; updateUI('Fillet'); });
+    // UI Tool Selection
+    const tools = ['select', 'line', 'rect', 'trim', 'fillet', 'dim'];
+    tools.forEach(tool => {
+        document.getElementById(`btn-${tool}`)?.addEventListener('click', () => {
+            const toolName = tool.charAt(0).toUpperCase() + tool.slice(1);
+            interaction.activeTool = toolName as any;
+            updateUI(toolName);
+        });
+    });
 
     function updateUI(active: string) {
         let msg = "Ready";
-        if (active === 'Trim') msg = 'Drawing mode: Trim - Click to trim segment';
-        else if (active === 'Fillet') msg = 'Drawing mode: Fillet - Select a corner for Fillet';
-        else if (active === 'Line') msg = 'Drawing Line - Click and drag to draw';
-        else if (active === 'Rect') msg = 'Drawing Rectangle - Click and drag to draw';
-        else if (active === 'Select') msg = 'Select Tool - Click or drag to select items';
+        if (active === 'Trim') msg = 'Trim Mode - Click lines to remove';
+        else if (active === 'Fillet') msg = 'Fillet Mode - Select a corner to round';
+        else if (active === 'Line') msg = 'Draw Line - Drag to create';
+        else if (active === 'Rect') msg = 'Draw Rectangle - Drag to create';
+        else if (active === 'Select') msg = 'Select Tool - Click or drag to select';
+        else if (active === 'Dim') msg = 'Dimension Tool - Drag between two points';
         
-        document.getElementById('status-text')!.innerText = msg;
+        const statusText = document.getElementById('status-text');
+        if (statusText) statusText.innerText = msg;
+
         document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
         document.getElementById(`btn-${active.toLowerCase()}`)?.classList.add('active');
     }
@@ -133,32 +151,5 @@ window.onload = () => {
     (window as any).canvasRenderer = canvasRenderer;
     (window as any).featureTree = featureTree;
     (window as any).selectionManager = selectionManager;
-    
-    (window as any).testDrawRect = () => {
-        import('./engine/core/feature').then(({ RectFeature }) => {
-            featureTree.addFeature(new RectFeature('test_rect', 0, 0, 50, -50));
-            canvasRenderer.updateGraph(featureTree.rebuild());
-            console.log('[Debug] Programmatic rect drawn.');
-        });
-    };
-
-    (window as any).testArrayCopy = () => {
-        import('./engine/core/feature').then(({ RectFeature }) => {
-            featureTree.addFeature(new RectFeature('test_rect_array', 10, -10, 20, -20));
-            ArrayCopyEngine.generateFlatCopies(featureTree, new Set(['test_rect_array']), 3, 3, 15, -15);
-            canvasRenderer.updateGraph(featureTree.rebuild());
-            console.log('[Debug] Programmatic array copy done.');
-        });
-    };
-
-    (window as any).testFillet = () => {
-        import('./engine/core/feature').then(({ RectFeature }) => {
-            featureTree.addFeature(new RectFeature('test_rect_fillet', 60, -60, 100, -100));
-            import('./engine/core/fillet').then(({ FilletFeature }) => {
-                featureTree.addFeature(new FilletFeature('fillet_debug', 60, -60, 5)); // Radius 5mm
-                canvasRenderer.updateGraph(featureTree.rebuild());
-                console.log('[Debug] Programmatic fillet done.');
-            });
-        });
-    };
 };
+
