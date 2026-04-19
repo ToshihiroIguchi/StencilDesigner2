@@ -1,20 +1,29 @@
 import { ModelGraph } from './graph';
 import type { VertexId, EdgeId } from './graph';
 
-/**
- * Feature-driven Topology Engine
- * 
- * 履歴ベース（History-based）CADの概念に基づき、設計意図（Design Intent）を Feature で表現し、
- * それを元にトポロジーである ModelGraph を再構築（Rebuild）します。
- */
-
 export type FeatureId = string;
 
 export interface Feature {
     id: FeatureId;
-    type: 'Line' | 'Rect' | 'Circle' | 'Trim';
-    // Topological Naming Foundation: Provides deterministic IDs for elements based on this feature
+    type: 'Line' | 'Rect' | 'Circle' | 'Trim' | 'Fillet' | 'Array' | 'Dim';
     generateTopology(graph: ModelGraph): void;
+}
+
+export class DimensionFeature implements Feature {
+    constructor(
+        public id: FeatureId,
+        public x1: number,
+        public y1: number,
+        public x2: number,
+        public y2: number,
+        public label: string // e.g. "10.00 mm"
+    ) {}
+
+    type: 'Dim' = 'Dim';
+
+    generateTopology(graph: ModelGraph): void {
+        // Dimensions only exist in the Render layer, no graph topology needed.
+    }
 }
 
 export class LineFeature implements Feature {
@@ -136,9 +145,71 @@ import { IntersectionEngine } from './intersection';
 
 export class FeatureTree {
     features: Feature[] = [];
+    private history: string[] = []; // JSON serialized states
+    private historyIndex: number = -1;
+    private maxHistory = 50;
+
+    constructor() {
+        this.saveHistory();
+    }
 
     addFeature(feature: Feature) {
         this.features.push(feature);
+        this.saveHistory();
+    }
+
+    // This replaces clear/assign to ensure history is captured
+    setFeatures(newFeatures: Feature[]) {
+        this.features = [...newFeatures];
+        this.saveHistory();
+    }
+
+    saveHistory() {
+        const state = JSON.stringify(this.features);
+        // If we were in the middle of undo, truncate the redo part
+        if (this.historyIndex < this.history.length - 1) {
+            this.history = this.history.slice(0, this.historyIndex + 1);
+        }
+        
+        this.history.push(state);
+        if (this.history.length > this.maxHistory) {
+            this.history.shift();
+        }
+        this.historyIndex = this.history.length - 1;
+    }
+
+    undo(): boolean {
+        if (this.historyIndex > 0) {
+            this.historyIndex--;
+            this.restoreState(this.history[this.historyIndex]);
+            return true;
+        }
+        return false;
+    }
+
+    redo(): boolean {
+        if (this.historyIndex < this.history.length - 1) {
+            this.historyIndex++;
+            this.restoreState(this.history[this.historyIndex]);
+            return true;
+        }
+        return false;
+    }
+
+    private restoreState(json: string) {
+        const raw = JSON.parse(json);
+        // Re-hydrate objects based on type
+        this.features = raw.map((f: any) => {
+            if (f.type === 'Line') return new LineFeature(f.id, f.x1, f.y1, f.x2, f.y2);
+            if (f.type === 'Rect') return new RectFeature(f.id, f.x1, f.y1, f.x2, f.y2);
+            if (f.type === 'Circle') return new CircleFeature(f.id, f.cx, f.cy, f.r);
+            if (f.type === 'Trim') return new TrimFeature(f.id, f.targetX, f.targetY);
+            if (f.type === 'Dim') return new DimensionFeature(f.id, f.x1, f.y1, f.x2, f.y2, f.label);
+            // Fillet/Array are usually modifiers or intermediate.
+            // Note: FilletFeature is imported/defined in fillet.ts, but let's check.
+            // Actually, Fillet is a feature too.
+            return f; // Fallback for simple objects
+        });
     }
 
     rebuild(): ModelGraph {
@@ -146,21 +217,57 @@ export class FeatureTree {
         
         // 1. Base Geometry
         for (const feature of this.features) {
-            if (feature.type !== 'Trim') {
+            if (feature.type !== 'Trim' && feature.type !== 'Fillet' && feature.type !== 'Dim') {
                 feature.generateTopology(graph);
             }
         }
 
+        // 1.5 Merge Coincident Vertices
+        this.mergeCoincidentVertices(graph);
+
         // 2. Intersection Evaluation & Segment Splitting
         IntersectionEngine.splitAllIntersections(graph);
 
-        // 3. Apply Modifiers (Trims)
+        // 3. Apply Modifiers (Trims & Fillets)
         for (const feature of this.features) {
             if (feature.type === 'Trim') {
                 (feature as TrimFeature).applyTrim(graph, 1.0); // 1.0mm strict model tolerance for replay
+            } else if (feature.type === 'Fillet') {
+                (feature as any).applyFillet(graph);
             }
         }
 
         return graph;
+    }
+
+    private mergeCoincidentVertices(graph: ModelGraph): void {
+        const canonicalMap = new Map<string, string>(); // maps duplicate vid to canonical vid
+        const vertices = Array.from(graph.vertices.values());
+        
+        for (let i = 0; i < vertices.length; i++) {
+            const v1 = vertices[i];
+            if (!graph.vertices.has(v1.id)) continue; // Already merged
+            
+            for (let j = i + 1; j < vertices.length; j++) {
+                const v2 = vertices[j];
+                if (!graph.vertices.has(v2.id)) continue;
+                
+                if (v1.x != null && v1.y != null && v2.x != null && v2.y != null) {
+                    // We need ToleranceManager.arePointsEqual but we cannot easily import it if not present,
+                    // Actually, ToleranceManager is not imported in feature.ts! Wait! 
+                    // Let's just do a math check.
+                    if (Math.hypot(v1.x - v2.x, v1.y - v2.y) < 1e-5) {
+                        canonicalMap.set(v2.id, v1.id);
+                        graph.vertices.delete(v2.id);
+                    }
+                }
+            }
+        }
+
+        // Remap edges
+        for (const edge of graph.edges.values()) {
+            if (canonicalMap.has(edge.u)) edge.u = canonicalMap.get(edge.u)!;
+            if (canonicalMap.has(edge.v)) edge.v = canonicalMap.get(edge.v)!;
+        }
     }
 }

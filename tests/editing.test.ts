@@ -9,7 +9,7 @@ describe('Atomic Deletion in FeatureTree', () => {
         tree.addFeature(new LineFeature('f2', 10, 10, 20, 20));
         
         let graph = tree.rebuild();
-        expect(graph.vertices.size).toBe(4);
+        expect(graph.vertices.size).toBe(3);
         expect(graph.edges.size).toBe(2);
         
         const editor = new FeatureEditor(tree);

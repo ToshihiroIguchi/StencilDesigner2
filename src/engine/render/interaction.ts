@@ -7,9 +7,11 @@ import { ModelGraph } from '../core/graph';
 import { CoordinateTransformer } from '../core/viewport';
 import { SelectionManager } from './selection';
 import { TrimTool } from './trim_tool';
+import { FilletTool } from './fillet_tool';
+import { DimensionTool } from './dimension_tool';
 
 export class InteractionController {
-    public activeTool: 'Line' | 'Rect' | 'Select' | 'Trim' = 'Select';
+    public activeTool: 'Line' | 'Rect' | 'Select' | 'Trim' | 'Fillet' | 'Dim' = 'Select';
     private currentStart: {x: number, y: number} | null = null;
     private featureIdCounter = 0;
 
@@ -17,17 +19,23 @@ export class InteractionController {
 
     constructor(
         private canvasRenderer: CanvasRenderer,
-        private featureTree: FeatureTree,
+        public featureTree: FeatureTree,
         private snapEngine: SnapEngine,
         private selectionManager: SelectionManager,
-        private trimTool: TrimTool
+        private trimTool: TrimTool,
+        private filletTool: FilletTool,
+        private dimensionTool: DimensionTool
     ) {
         // Register Paper.js Tool
         this.tool = new paper.Tool();
         this.tool.activate();
         
         this.tool.onMouseDown = (event: paper.ToolEvent) => {
-            if (this.activeTool === 'Trim') return;
+            if (this.activeTool === 'Trim' || this.activeTool === 'Fillet') return;
+            if (this.activeTool === 'Dim') {
+                this.dimensionTool.onMouseDown(event.point);
+                return;
+            }
             if (this.activeTool === 'Select') {
                 this.currentStart = { x: event.point.x, y: event.point.y }; 
                 return;
@@ -37,7 +45,7 @@ export class InteractionController {
         };
 
         this.tool.onMouseDrag = (event: paper.ToolEvent) => {
-            if (this.activeTool === 'Trim') return;
+            if (this.activeTool === 'Trim' || this.activeTool === 'Fillet' || this.activeTool === 'Dim') return;
             if (!this.currentStart) return;
             if (this.activeTool === 'Select') {
                 const rect = new paper.Path.Rectangle(
@@ -60,6 +68,14 @@ export class InteractionController {
                 this.trimTool.onMouseMove(event.point);
                 return;
             }
+            if (this.activeTool === 'Fillet') {
+                this.filletTool.onMouseMove(event.point);
+                return;
+            }
+            if (this.activeTool === 'Dim') {
+                this.dimensionTool.onMouseMove(event.point);
+                return;
+            }
             if (this.activeTool === 'Select') return;
             this.handleGhosting(event.point, event.modifiers.shift); 
         };
@@ -67,6 +83,14 @@ export class InteractionController {
         this.tool.onMouseUp = (event: paper.ToolEvent) => {
             if (this.activeTool === 'Trim') {
                 this.trimTool.onMouseUp(event.point);
+                return;
+            }
+            if (this.activeTool === 'Fillet') {
+                this.filletTool.onMouseUp(event.point);
+                return;
+            }
+            if (this.activeTool === 'Dim') {
+                this.dimensionTool.onMouseUp(event.point);
                 return;
             }
             if (!this.currentStart) return;
