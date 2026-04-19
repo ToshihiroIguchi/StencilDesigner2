@@ -1,6 +1,6 @@
 import './style.css';
 import { CanvasRenderer } from './engine/render/canvas';
-import { FeatureTree } from './engine/core/feature';
+import { FeatureTree, RectFeature } from './engine/core/feature';
 import { SnapEngine } from './engine/core/snap';
 import { InteractionController } from './engine/render/interaction';
 
@@ -151,5 +151,15 @@ window.onload = () => {
     (window as any).canvasRenderer = canvasRenderer;
     (window as any).featureTree = featureTree;
     (window as any).selectionManager = selectionManager;
+
+    (window as any).addTestRect = () => {
+        const id = `test_${Date.now()}`;
+        featureTree.addFeature(new RectFeature(id, -20, -20, 20, 20));
+        handleRebuild();
+        console.log("Test rectangle added at (-20,-20) to (20,20)");
+    };
+
+    // Initial Sync
+    handleRebuild();
 };
 

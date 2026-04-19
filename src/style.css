@@ -167,6 +167,12 @@ input[type="number"] {
 }
 
 #main-canvas {
-  background-color: #ffffff;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: var(--bg-dark);
   display: block;
+  z-index: 1;
 }

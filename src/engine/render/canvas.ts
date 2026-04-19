@@ -67,7 +67,7 @@ export class CanvasRenderer {
         new paper.Point(x, bounds.top),
         new paper.Point(x, bounds.bottom)
       );
-      line.strokeColor = new paper.Color('#f0f0f0');
+      line.strokeColor = new paper.Color('#2a2a2a'); // Subtle dark grid
       line.strokeWidth = 1;
       line.strokeScaling = false;
     }
@@ -77,7 +77,7 @@ export class CanvasRenderer {
         new paper.Point(bounds.left, y),
         new paper.Point(bounds.right, y)
       );
-      line.strokeColor = new paper.Color('#f0f0f0');
+      line.strokeColor = new paper.Color('#2a2a2a');
       line.strokeWidth = 1;
       line.strokeScaling = false; 
     }
@@ -170,8 +170,8 @@ export class CanvasRenderer {
               handle2.strokeWidth = 1.5;
               handle2.strokeScaling = false;
           } else {
-              path.strokeColor = new paper.Color('#000000');
-              path.strokeWidth = 2;
+              path.strokeColor = new paper.Color('#ffffff'); // White on dark
+              path.strokeWidth = 1.5;
           }
           path.strokeScaling = false;
       }
