@@ -320,10 +320,50 @@ export class InteractionController {
     }
 
     private resetZoom() {
+        // Zoom to Fit logic
+        const graph = this.featureTree.rebuild();
         const rect = paper.view.element.getBoundingClientRect();
-        this.canvasRenderer.viewState.offsetX = rect.width / 2;
-        this.canvasRenderer.viewState.offsetY = rect.height / 2;
-        this.canvasRenderer.viewState.zoom = 10;
+        const viewW = rect.width;
+        const viewH = rect.height;
+
+        if (graph.vertices.size === 0) {
+            // Default reset if empty
+            this.canvasRenderer.viewState.offsetX = viewW / 2;
+            this.canvasRenderer.viewState.offsetY = viewH / 2;
+            this.canvasRenderer.viewState.zoom = 10;
+        } else {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const v of graph.vertices.values()) {
+                if (v.x == null || v.y == null) continue;
+                minX = Math.min(minX, v.x);
+                minY = Math.min(minY, v.y);
+                maxX = Math.max(maxX, v.x);
+                maxY = Math.max(maxY, v.y);
+            }
+            
+            const modelW = maxX - minX || 1;
+            const modelH = maxY - minY || 1;
+            
+            const padding = 120; // Margin around the content
+            const fitW = viewW - padding;
+            const fitH = viewH - padding;
+            
+            const zoom = Math.min(fitW / modelW, fitH / modelH);
+            this.canvasRenderer.viewState.zoom = Math.min(zoom, 1000); // Caps initial zoom to 1000x
+            
+            const centerX_model = (minX + maxX) / 2;
+            const centerY_model = (minY + maxY) / 2;
+            
+            // Re-calculate offset using the same Matrix-based logic as zoomAround
+            // mouseScreen (center) = Offset + (ModelCenter scaled)
+            // Offset = screenCenter - (modelCenter * zoomMatrix)
+            const scaleM = new paper.Matrix().scale(this.canvasRenderer.viewState.zoom, -this.canvasRenderer.viewState.zoom);
+            const scaledCenter = scaleM.transform(new paper.Point(centerX_model, centerY_model));
+            
+            this.canvasRenderer.viewState.offsetX = viewW / 2 - scaledCenter.x;
+            this.canvasRenderer.viewState.offsetY = viewH / 2 - scaledCenter.y;
+        }
+        
         this.canvasRenderer.drawAll();
         this.canvasRenderer.viewState.log();
     }
