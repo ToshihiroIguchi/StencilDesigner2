@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Manufacturing Evidence & Snapshots
+stencil_*.png
+*.webp
+temp_*.mjs
+
