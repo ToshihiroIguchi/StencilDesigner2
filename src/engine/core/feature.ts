@@ -1,5 +1,4 @@
 import { ModelGraph } from './graph';
-import type { VertexId, EdgeId } from './graph';
 
 export type FeatureId = string;
 
@@ -23,7 +22,7 @@ export class DimensionFeature implements Feature {
 
     type: 'Dim' = 'Dim';
 
-    generateTopology(graph: ModelGraph): void {
+    generateTopology(_graph: ModelGraph): void {
         // Dimensions only exist in the Render layer.
     }
 }
@@ -106,7 +105,7 @@ export class TrimFeature implements Feature {
 
     type: 'Trim' = 'Trim';
     
-    generateTopology(graph: ModelGraph): void {
+    generateTopology(_graph: ModelGraph): void {
         // Handled during the post-intersection step in FeatureTree rebuild
     }
 

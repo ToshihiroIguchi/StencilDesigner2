@@ -1,10 +1,8 @@
 import paper from 'paper';
 import { FeatureTree, LineFeature, RectFeature } from '../core/feature';
 import { SnapEngine } from '../core/snap';
-import type { SnapResult } from '../core/snap';
 import { CanvasRenderer } from './canvas';
 import { ModelGraph } from '../core/graph';
-import { CoordinateTransformer } from '../core/viewport';
 import { SelectionManager } from './selection';
 import { TrimTool } from './trim_tool';
 import { FilletTool } from './fillet_tool';

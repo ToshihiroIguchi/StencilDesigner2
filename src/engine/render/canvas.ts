@@ -179,7 +179,7 @@ export class CanvasRenderer {
       // Draw Dimensions
       this.drawDimensions();
 
-      paper.view.draw();
+      (paper.view as any).draw();
   }
 
   private drawDimensions(): void {
@@ -269,7 +269,7 @@ export class CanvasRenderer {
   /**
    * Draws temporary interaction feedback (Ghosting & Snap Indicators)
    */
-  public drawFeedback(ghostPath: paper.Path | null, snapType: string, snapScreenPt: {x: number, y: number}): void {
+  public drawFeedback(ghostPath: paper.Item | null, snapType: string, snapScreenPt: {x: number, y: number}): void {
       this.snapLayer.activate();
       this.snapLayer.removeChildren();
 
@@ -283,11 +283,11 @@ export class CanvasRenderer {
           const pt = new paper.Point(snapScreenPt.x, snapScreenPt.y);
           
           if (snapType === 'endpoint') {
-              indicator = paper.Path.Rectangle(new paper.Rectangle(pt.subtract(4), new paper.Size(8, 8)));
+              indicator = new paper.Path.Rectangle(new paper.Rectangle(pt.subtract(4), new paper.Size(8, 8)));
           } else if (snapType === 'midpoint') {
               indicator = new paper.Path.RegularPolygon(pt, 3, 5); // Triangle
           } else { // Grid
-              indicator = paper.Path.Circle(pt, 3);
+              indicator = new paper.Path.Circle(pt, 3);
           }
           
           indicator.strokeColor = new paper.Color('#00aa88');
@@ -297,6 +297,6 @@ export class CanvasRenderer {
           this.snapLayer.addChild(indicator);
       }
 
-      paper.view.draw();
+      (paper.view as any).draw();
   }
 }

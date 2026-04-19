@@ -5,13 +5,12 @@ import { SelectionManager } from './selection';
 import { ModelGraph } from '../core/graph';
 
 export class TrimTool {
-    private hoverGhost: paper.Path | null = null;
     private featureIdCounter = 0;
 
     constructor(
         private canvasRenderer: CanvasRenderer,
         private featureTree: FeatureTree,
-        private selectionManager: SelectionManager
+        _selectionManager: SelectionManager
     ) {}
 
     onMouseMove(screenPt: {x: number, y: number}) {

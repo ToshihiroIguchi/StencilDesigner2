@@ -12,8 +12,10 @@ StencilDesigner2 is a specialized CAD tool designed for electronic component ste
   - **Interactive Trim**: Split and remove segments at intersections effortlessly.
   - **Corner Fillet**: Precise mathematical rounding of corners using Maker.js.
   - **Array Copy**: Efficient matrix duplication for electrode patterns.
+- **Sticky Dimensions**: Automatic measurement tools attached to vertices. If a vertex is removed, the dimension enters a "detached" state (visually grayed out with a hint) to maintain non-destructive information.
+- **History Management**: Robust **Undo / Redo** stack (Ctrl+Z / Ctrl+Y) integrated into the core topology tree.
 - **Industrial Export**: Direct export to **DXF** and **SVG** with 1μm coordinated precision.
-- **Simple UI**: Designed for manufacturing pros, not CAD experts. Simple English and icons only.
+- **Pro UI/UX**: Professional dark theme with grid snapping and localized status guidance (Simple English).
 
 ## Getting Started
 

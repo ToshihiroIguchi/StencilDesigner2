@@ -1,5 +1,4 @@
 import { ModelGraph } from '../core/graph';
-import { ToleranceManager } from '../core/viewport';
 
 export class SelectionManager {
     public selectedFeatureIds: Set<string> = new Set();

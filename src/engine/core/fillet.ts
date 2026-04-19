@@ -14,7 +14,7 @@ export class FilletFeature implements Feature {
 
     type: 'Fillet' = 'Fillet' as any; // Type trick to bypass Feature interface union (will update Interface too)
     
-    generateTopology(graph: ModelGraph): void {
+    generateTopology(_graph: ModelGraph): void {
         // Empty by design: Applied in post-processing like Trim
     }
 
@@ -58,8 +58,8 @@ export class FilletFeature implements Feature {
         if (!vOther1 || !vOther2 || !vCorner || vOther1.x == null || vCorner.x == null || vOther2.x == null) return;
 
         // 3. Mathematical modeling using Maker.js API
-        const line1 = new makerjs.paths.Line([vOther1.x, vOther1.y], [vCorner.x, vCorner.y]);
-        const line2 = new makerjs.paths.Line([vCorner.x, vCorner.y], [vOther2.x, vOther2.y]);
+        const line1 = new makerjs.paths.Line([vOther1.x!, vOther1.y!], [vCorner.x!, vCorner.y!]);
+        const line2 = new makerjs.paths.Line([vCorner.x!, vCorner.y!], [vOther2.x!, vOther2.y!]);
 
         try {
             const arc = makerjs.path.fillet(line1, line2, this.radius) as any;
@@ -77,7 +77,6 @@ export class FilletFeature implements Feature {
             // Maker.js usually aligns ptA with line1 and ptB with line2 depending on initialization.
             // Let's explicitly check distance.
             const distToLine1 = (pt: {x:number, y:number}) => this.distToSegment(pt, vOther1 as any, vCorner as any);
-            const distToLine2 = (pt: {x:number, y:number}) => this.distToSegment(pt, vOther2 as any, vCorner as any);
 
             let ptForE1 = ptA;
             let ptForE2 = ptB;
