@@ -5,8 +5,25 @@ export type FeatureId = string;
 
 export interface Feature {
     id: FeatureId;
-    type: 'Line' | 'Rect' | 'Circle' | 'Trim' | 'Fillet' | 'Array';
+    type: 'Line' | 'Rect' | 'Circle' | 'Trim' | 'Fillet' | 'Array' | 'Dim';
     generateTopology(graph: ModelGraph): void;
+}
+
+export class DimensionFeature implements Feature {
+    constructor(
+        public id: FeatureId,
+        public x1: number,
+        public y1: number,
+        public x2: number,
+        public y2: number,
+        public label: string // e.g. "10.00 mm"
+    ) {}
+
+    type: 'Dim' = 'Dim';
+
+    generateTopology(graph: ModelGraph): void {
+        // Dimensions only exist in the Render layer, no graph topology needed.
+    }
 }
 
 export class LineFeature implements Feature {
@@ -128,9 +145,71 @@ import { IntersectionEngine } from './intersection';
 
 export class FeatureTree {
     features: Feature[] = [];
+    private history: string[] = []; // JSON serialized states
+    private historyIndex: number = -1;
+    private maxHistory = 50;
+
+    constructor() {
+        this.saveHistory();
+    }
 
     addFeature(feature: Feature) {
         this.features.push(feature);
+        this.saveHistory();
+    }
+
+    // This replaces clear/assign to ensure history is captured
+    setFeatures(newFeatures: Feature[]) {
+        this.features = [...newFeatures];
+        this.saveHistory();
+    }
+
+    saveHistory() {
+        const state = JSON.stringify(this.features);
+        // If we were in the middle of undo, truncate the redo part
+        if (this.historyIndex < this.history.length - 1) {
+            this.history = this.history.slice(0, this.historyIndex + 1);
+        }
+        
+        this.history.push(state);
+        if (this.history.length > this.maxHistory) {
+            this.history.shift();
+        }
+        this.historyIndex = this.history.length - 1;
+    }
+
+    undo(): boolean {
+        if (this.historyIndex > 0) {
+            this.historyIndex--;
+            this.restoreState(this.history[this.historyIndex]);
+            return true;
+        }
+        return false;
+    }
+
+    redo(): boolean {
+        if (this.historyIndex < this.history.length - 1) {
+            this.historyIndex++;
+            this.restoreState(this.history[this.historyIndex]);
+            return true;
+        }
+        return false;
+    }
+
+    private restoreState(json: string) {
+        const raw = JSON.parse(json);
+        // Re-hydrate objects based on type
+        this.features = raw.map((f: any) => {
+            if (f.type === 'Line') return new LineFeature(f.id, f.x1, f.y1, f.x2, f.y2);
+            if (f.type === 'Rect') return new RectFeature(f.id, f.x1, f.y1, f.x2, f.y2);
+            if (f.type === 'Circle') return new CircleFeature(f.id, f.cx, f.cy, f.r);
+            if (f.type === 'Trim') return new TrimFeature(f.id, f.targetX, f.targetY);
+            if (f.type === 'Dim') return new DimensionFeature(f.id, f.x1, f.y1, f.x2, f.y2, f.label);
+            // Fillet/Array are usually modifiers or intermediate.
+            // Note: FilletFeature is imported/defined in fillet.ts, but let's check.
+            // Actually, Fillet is a feature too.
+            return f; // Fallback for simple objects
+        });
     }
 
     rebuild(): ModelGraph {
@@ -138,7 +217,7 @@ export class FeatureTree {
         
         // 1. Base Geometry
         for (const feature of this.features) {
-            if (feature.type !== 'Trim' && feature.type !== 'Fillet') {
+            if (feature.type !== 'Trim' && feature.type !== 'Fillet' && feature.type !== 'Dim') {
                 feature.generateTopology(graph);
             }
         }
