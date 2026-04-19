@@ -16,6 +16,7 @@ export interface SnapResult {
     modelPt: { x: number, y: number };
     screenPt: { x: number, y: number };
     type: SnapType;
+    vertexId?: string; // NEW: Track vertex for sticky dimensions
 }
 
 export class SnapEngine {
@@ -38,6 +39,7 @@ export class SnapEngine {
 
         let bestDistEndpoint = Infinity;
         let endpointSnap: { x: number, y: number } | null = null;
+        let endpointId: string | null = null;
         
         let bestDistMidpoint = Infinity;
         let midpointSnap: { x: number, y: number } | null = null;
@@ -49,6 +51,7 @@ export class SnapEngine {
             if (dist <= modelRadius && dist < bestDistEndpoint) {
                 bestDistEndpoint = dist;
                 endpointSnap = { x: v.x, y: v.y };
+                endpointId = v.id;
             }
         }
 
@@ -75,10 +78,12 @@ export class SnapEngine {
 
         let finalModelPt = { x: ToleranceManager.canonicalize(rawModelPt.x), y: ToleranceManager.canonicalize(rawModelPt.y) };
         let finalType: SnapType = 'none';
+        let finalVertexId: string | undefined = undefined;
 
         if (endpointSnap) {
             finalModelPt = endpointSnap;
             finalType = 'endpoint';
+            finalVertexId = endpointId || undefined;
         } else if (midpointSnap) {
             finalModelPt = midpointSnap;
             finalType = 'midpoint';
@@ -92,7 +97,8 @@ export class SnapEngine {
         return {
             modelPt: finalModelPt,
             screenPt: finalScreenPt,
-            type: finalType
+            type: finalType,
+            vertexId: finalVertexId
         };
     }
 }

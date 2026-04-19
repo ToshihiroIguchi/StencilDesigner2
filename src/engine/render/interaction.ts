@@ -33,7 +33,8 @@ export class InteractionController {
         this.tool.onMouseDown = (event: paper.ToolEvent) => {
             if (this.activeTool === 'Trim' || this.activeTool === 'Fillet') return;
             if (this.activeTool === 'Dim') {
-                this.dimensionTool.onMouseDown(event.point);
+                const snap = this.snapEngine.snap(event.point.x, event.point.y);
+                this.dimensionTool.onMouseDown(snap);
                 return;
             }
             if (this.activeTool === 'Select') {
@@ -73,7 +74,8 @@ export class InteractionController {
                 return;
             }
             if (this.activeTool === 'Dim') {
-                this.dimensionTool.onMouseMove(event.point);
+                const snap = this.snapEngine.snap(event.point.x, event.point.y);
+                this.dimensionTool.onMouseMove(event.point, snap);
                 return;
             }
             if (this.activeTool === 'Select') return;
@@ -90,7 +92,8 @@ export class InteractionController {
                 return;
             }
             if (this.activeTool === 'Dim') {
-                this.dimensionTool.onMouseUp(event.point);
+                const snap = this.snapEngine.snap(event.point.x, event.point.y);
+                this.dimensionTool.onMouseUp(snap);
                 return;
             }
             if (!this.currentStart) return;

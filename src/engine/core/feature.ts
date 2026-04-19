@@ -16,13 +16,15 @@ export class DimensionFeature implements Feature {
         public y1: number,
         public x2: number,
         public y2: number,
-        public label: string // e.g. "10.00 mm"
+        public label: string,
+        public v1Id?: string, // Sticky Start Vertex
+        public v2Id?: string  // Sticky End Vertex
     ) {}
 
     type: 'Dim' = 'Dim';
 
     generateTopology(graph: ModelGraph): void {
-        // Dimensions only exist in the Render layer, no graph topology needed.
+        // Dimensions only exist in the Render layer.
     }
 }
 
@@ -158,9 +160,19 @@ export class FeatureTree {
         this.saveHistory();
     }
 
+    addFeatures(newFeatures: Feature[]) {
+        this.features.push(...newFeatures);
+        this.saveHistory();
+    }
+
     // This replaces clear/assign to ensure history is captured
     setFeatures(newFeatures: Feature[]) {
         this.features = [...newFeatures];
+        this.saveHistory();
+    }
+
+    deleteFeatures(featureIds: Set<string>): void {
+        this.features = this.features.filter(f => !featureIds.has(f.id));
         this.saveHistory();
     }
 
@@ -204,10 +216,9 @@ export class FeatureTree {
             if (f.type === 'Rect') return new RectFeature(f.id, f.x1, f.y1, f.x2, f.y2);
             if (f.type === 'Circle') return new CircleFeature(f.id, f.cx, f.cy, f.r);
             if (f.type === 'Trim') return new TrimFeature(f.id, f.targetX, f.targetY);
-            if (f.type === 'Dim') return new DimensionFeature(f.id, f.x1, f.y1, f.x2, f.y2, f.label);
+            if (f.type === 'Dim') return new DimensionFeature(f.id, f.x1, f.y1, f.x2, f.y2, f.label, f.v1Id, f.v2Id);
             // Fillet/Array are usually modifiers or intermediate.
             // Note: FilletFeature is imported/defined in fillet.ts, but let's check.
-            // Actually, Fillet is a feature too.
             return f; // Fallback for simple objects
         });
     }

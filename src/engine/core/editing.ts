@@ -12,6 +12,6 @@ export class FeatureEditor {
      * Deletes features by their IDs securely from the tree.
      */
     deleteFeatures(featureIds: Set<string>): void {
-        this.tree.features = this.tree.features.filter(f => !featureIds.has(f.id));
+        this.tree.deleteFeatures(featureIds);
     }
 }

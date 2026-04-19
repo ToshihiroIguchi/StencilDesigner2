@@ -184,20 +184,49 @@ export class CanvasRenderer {
 
   private drawDimensions(): void {
       const interaction = (window as any).interaction;
-      if (!interaction || !interaction.featureTree) return;
+      if (!interaction || !interaction.featureTree || !this.currentGraph) return;
       
       const features = interaction.featureTree.features;
+      const graph = this.currentGraph;
+
       for (const f of features) {
           if (f.type === 'Dim') {
               const dim = f as any;
-              const pt1 = this.transformer.modelToScreen(dim.x1, dim.y1);
-              const pt2 = this.transformer.modelToScreen(dim.x2, dim.y2);
+              
+              // Resolution Logic for Sticky Dimensions
+              let liveX1 = dim.x1;
+              let liveY1 = dim.y1;
+              let liveX2 = dim.x2;
+              let liveY2 = dim.y2;
+              let detached = false;
+
+              if (dim.v1Id) {
+                  const v1 = graph.vertices.get(dim.v1Id);
+                  if (v1 && v1.x != null && v1.y != null) {
+                      liveX1 = v1.x; liveY1 = v1.y;
+                  } else {
+                      detached = true;
+                  }
+              }
+              if (dim.v2Id) {
+                  const v2 = graph.vertices.get(dim.v2Id);
+                  if (v2 && v2.x != null && v2.y != null) {
+                      liveX2 = v2.x; liveY2 = v2.y;
+                  } else {
+                      detached = true;
+                  }
+              }
+
+              const pt1 = this.transformer.modelToScreen(liveX1, liveY1);
+              const pt2 = this.transformer.modelToScreen(liveX2, liveY2);
               
               const group = new paper.Group();
+              const color = detached ? new paper.Color('#bbbbbb') : new paper.Color('#777777');
               
               const line = new paper.Path.Line(new paper.Point(pt1.x, pt1.y), new paper.Point(pt2.x, pt2.y));
-              line.strokeColor = new paper.Color('#777777');
+              line.strokeColor = color;
               line.strokeWidth = 1;
+              if (detached) line.dashArray = [4, 4];
               group.addChild(line);
 
               // Small ticks
@@ -207,21 +236,29 @@ export class CanvasRenderer {
                   new paper.Point(pt1.x - Math.sin(angle)*tickLength, pt1.y + Math.cos(angle)*tickLength),
                   new paper.Point(pt1.x + Math.sin(angle)*tickLength, pt1.y - Math.cos(angle)*tickLength)
               );
-              tick1.strokeColor = new paper.Color('#777777');
+              tick1.strokeColor = color;
               group.addChild(tick1);
 
               const tick2 = new paper.Path.Line(
                   new paper.Point(pt2.x - Math.sin(angle)*tickLength, pt2.y + Math.cos(angle)*tickLength),
                   new paper.Point(pt2.x + Math.sin(angle)*tickLength, pt2.y - Math.cos(angle)*tickLength)
               );
-              tick2.strokeColor = new paper.Color('#777777');
+              tick2.strokeColor = color;
               group.addChild(tick2);
 
+              // Label (Update if sticky and not detached)
+              let labelText = dim.label;
+              if (!detached && (dim.v1Id || dim.v2Id)) {
+                  const liveDist = Math.hypot(liveX2 - liveX1, liveY2 - liveY1);
+                  labelText = `${liveDist.toFixed(2)} mm`;
+              }
+
               const text = new paper.PointText(new paper.Point((pt1.x + pt2.x) / 2, (pt1.y + pt2.y) / 2 - 5));
-              text.content = dim.label;
-              text.fillColor = new paper.Color('#777777');
+              text.content = labelText;
+              text.fillColor = color;
               text.fontSize = 11;
               text.justification = 'center';
+              if (detached) text.content += " (detached)";
               group.addChild(text);
 
               this.geometryLayer.addChild(group);
