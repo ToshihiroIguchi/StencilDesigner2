@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StencilDesigner2</title>
+    <style>
+      body, html {
+        margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: sans-serif; background-color: #ffffff;
+      }
+      #toolbar {
+        position: absolute; top: 10px; left: 10px; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); z-index: 10; display: flex; gap: 10px; align-items: center;
+      }
+      .tool-btn {
+        padding: 5px 10px; border: 1px solid #ccc; background: #f9f9f9; cursor: pointer; display: flex; align-items: center; gap: 5px; border-radius: 3px;
+      }
+      .tool-btn:hover { background: #eee; }
+      .tool-btn.active { background: #d0f0ff; border-color: #00aa88; }
+      .icon-placeholder { width: 16px; height: 16px; background: #333; border-radius: 3px; display: inline-block; }
+      #main-canvas { display: block; width: 100%; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="toolbar">
+      <button id="btn-select" class="tool-btn"><span class="icon-placeholder"></span> Select</button>
+      <button id="btn-line" class="tool-btn"><span class="icon-placeholder"></span> Line</button>
+      <button id="btn-rect" class="tool-btn"><span class="icon-placeholder"></span> Rect</button>
+      <div style="margin-left: 20px;">
+        <span id="status-text" style="font-size:12px;color:#555;">Ready</span>
+      </div>
+    </div>
+    <canvas id="main-canvas" resize="true"></canvas>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
