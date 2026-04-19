@@ -2,23 +2,30 @@ import { ModelGraph } from '../core/graph';
 
 export class SelectionManager {
     public selectedFeatureIds: Set<string> = new Set();
+    public onSelectionChange: () => void = () => {};
 
     select(featureId: string, additive: boolean = false) {
-        if (!additive) this.clear();
+        if (!additive) {
+            this.selectedFeatureIds.clear();
+        }
         this.selectedFeatureIds.add(featureId);
+        this.onSelectionChange();
     }
 
     deselect(featureId: string) {
         this.selectedFeatureIds.delete(featureId);
+        this.onSelectionChange();
     }
 
     clear() {
         this.selectedFeatureIds.clear();
+        this.onSelectionChange();
     }
 
     selectAll(allIds: string[]) {
-        this.clear();
+        this.selectedFeatureIds.clear();
         allIds.forEach(id => this.selectedFeatureIds.add(id));
+        this.onSelectionChange();
     }
 
     isSelected(featureId: string): boolean {
@@ -26,8 +33,8 @@ export class SelectionManager {
     }
 
     extractFeatureIdFromElementId(elementId: string): string | null {
-        // Topological Naming: f_0_v0 -> f_0
-        const match = elementId.match(/^(f_\d+)_/);
+        // Topological Naming: f_0_v0 -> f_0, f_param_0_e0 -> f_param_0
+        const match = elementId.match(/^(f[a-z0-9_]+)_/);
         return match ? match[1] : null;
     }
 

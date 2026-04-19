@@ -2,16 +2,19 @@ import paper from 'paper';
 import { ViewState, CoordinateTransformer, ToleranceManager } from '../core/viewport';
 import { ModelGraph } from '../core/graph';
 import { SelectionManager } from './selection';
+import { RulerManager } from './ruler';
 
 export class CanvasRenderer {
   public viewState: ViewState;
   public transformer: CoordinateTransformer;
   public selectionManager?: SelectionManager;
-  private canvasElement: HTMLCanvasElement;
+  public canvasElement: HTMLCanvasElement;
   private currentGraph: ModelGraph | null = null;
   private snapLayer: paper.Layer;
   private geometryLayer: paper.Layer;
   private backgroundLayer: paper.Layer;
+  private uiLayer: paper.Layer;
+  private rulerManager: RulerManager;
 
   constructor(canvasId: string) {
     this.canvasElement = document.getElementById(canvasId) as HTMLCanvasElement;
@@ -20,6 +23,7 @@ export class CanvasRenderer {
     }
 
     paper.setup(this.canvasElement);
+    paper.settings.applyMatrix = false; // Essential for CAD: coordinates remain Truth
     
     const rect = this.canvasElement.getBoundingClientRect();
     const centerX = rect.width / 2 || window.innerWidth / 2;
@@ -30,7 +34,10 @@ export class CanvasRenderer {
     // Layer Management
     this.backgroundLayer = new paper.Layer();
     this.geometryLayer = new paper.Layer();
+    this.uiLayer = new paper.Layer();
     this.snapLayer = new paper.Layer();
+
+    this.rulerManager = new RulerManager(this.viewState, this.transformer, this.uiLayer);
 
     paper.view.onResize = () => {
       this.drawAll();
@@ -47,56 +54,72 @@ export class CanvasRenderer {
   }
 
   public drawAll(): void {
+    this.updateMatrices();
     this.drawBackground();
     this.drawGeometry();
+    this.rulerManager.draw();
+    paper.view.update();
+  }
+
+  private updateMatrices(): void {
+    const m = this.transformer.getMatrix();
+    this.geometryLayer.matrix = m;
+    this.backgroundLayer.matrix = m;
+    this.snapLayer.matrix = m;
+    // uiLayer stays identity (1:1 screen pixels)
   }
 
   public drawBackground(): void {
     this.backgroundLayer.activate();
     this.backgroundLayer.removeChildren();
 
-    const bounds = paper.view.bounds;
     const gridMm = ToleranceManager.getGridInterval(this.viewState.zoom);
-    const pixelInterval = gridMm * this.viewState.zoom;
+    const bounds = paper.view.bounds;
+    
+    // Bounds in model space
+    const p1 = this.transformer.screenToModel(bounds.left, bounds.top);
+    const p2 = this.transformer.screenToModel(bounds.right, bounds.bottom);
+    
+    const startX = Math.floor(Math.min(p1.x, p2.x) / gridMm) * gridMm;
+    const endX = Math.ceil(Math.max(p1.x, p2.x) / gridMm) * gridMm;
+    const startY = Math.floor(Math.min(p1.y, p2.y) / gridMm) * gridMm;
+    const endY = Math.ceil(Math.max(p1.y, p2.y) / gridMm) * gridMm;
 
-    const startX = bounds.left - (bounds.left % pixelInterval) - pixelInterval;
-    const startY = bounds.top - (bounds.top % pixelInterval) - pixelInterval;
-
-    for (let x = startX; x < bounds.right + pixelInterval; x += pixelInterval) {
+    for (let x = startX; x <= endX; x += gridMm) {
       const line = new paper.Path.Line(
-        new paper.Point(x, bounds.top),
-        new paper.Point(x, bounds.bottom)
+        new paper.Point(x, startY - 100),
+        new paper.Point(x, endY + 100)
       );
-      line.strokeColor = new paper.Color('#2a2a2a'); // Subtle dark grid
+      line.strokeColor = new paper.Color('#2a2a2a');
       line.strokeWidth = 1;
       line.strokeScaling = false;
     }
 
-    for (let y = startY; y < bounds.bottom + pixelInterval; y += pixelInterval) {
+    for (let y = startY; y <= endY; y += gridMm) {
       const line = new paper.Path.Line(
-        new paper.Point(bounds.left, y),
-        new paper.Point(bounds.right, y)
+        new paper.Point(startX - 100, y),
+        new paper.Point(endX + 100, y)
       );
       line.strokeColor = new paper.Color('#2a2a2a');
       line.strokeWidth = 1;
       line.strokeScaling = false; 
     }
 
-    const origin = this.transformer.modelToScreen(0, 0);
+    // Origin Axes
     const xAxis = new paper.Path.Line(
-      new paper.Point(bounds.left, origin.y),
-      new paper.Point(bounds.right, origin.y)
+      new paper.Point(startX - 1000, 0),
+      new paper.Point(endX + 1000, 0)
     );
     xAxis.strokeColor = new paper.Color('#ff5555');
-    xAxis.strokeWidth = 2;
+    xAxis.strokeWidth = 1.5;
     xAxis.strokeScaling = false;
 
     const yAxis = new paper.Path.Line(
-      new paper.Point(origin.x, bounds.top),
-      new paper.Point(origin.x, bounds.bottom)
+      new paper.Point(0, startY - 1000),
+      new paper.Point(0, endY + 1000)
     );
     yAxis.strokeColor = new paper.Color('#55ff55');
-    yAxis.strokeWidth = 2;
+    yAxis.strokeWidth = 1.5;
     yAxis.strokeScaling = false;
   }
 
@@ -111,19 +134,12 @@ export class CanvasRenderer {
           const v2 = this.currentGraph.vertices.get(edge.v);
           if (!v1 || !v2 || v1.x == null || v1.y == null || v2.x == null || v2.y == null) continue;
           
-          const pt1 = this.transformer.modelToScreen(v1.x, v1.y);
-          const pt2 = this.transformer.modelToScreen(v2.x, v2.y);
-          
           let path: paper.Path;
           if (edge.arcData) {
-              // Convert Maker.js Arc definition to Paper.js points
-              // Note: makerjs arc startAngle/endAngle are in degrees, counter-clockwise from 3 o'clock.
-              // Paper.js Arc takes start, through, end points.
               const startAngleRad = edge.arcData.startAngle * Math.PI / 180;
               const endAngleRad = edge.arcData.endAngle * Math.PI / 180;
               let midAngleRad = startAngleRad + (endAngleRad - startAngleRad) / 2;
               
-              // Handle angle wrapping (makerjs arcs are CCW by default)
               if (endAngleRad < startAngleRad) {
                   midAngleRad = startAngleRad + (endAngleRad + 2 * Math.PI - startAngleRad) / 2;
               }
@@ -131,18 +147,15 @@ export class CanvasRenderer {
               const mx = edge.arcData.origin[0] + edge.arcData.radius * Math.cos(midAngleRad);
               const my = edge.arcData.origin[1] + edge.arcData.radius * Math.sin(midAngleRad);
               
-              // Project mid point to screen
-              const ptMid = this.transformer.modelToScreen(mx, my);
-
               path = new paper.Path.Arc(
-                  new paper.Point(pt1.x, pt1.y),
-                  new paper.Point(ptMid.x, ptMid.y),
-                  new paper.Point(pt2.x, pt2.y)
+                  new paper.Point(v1.x, v1.y),
+                  new paper.Point(mx, my),
+                  new paper.Point(v2.x, v2.y)
               );
           } else {
               path = new paper.Path.Line(
-                  new paper.Point(pt1.x, pt1.y),
-                  new paper.Point(pt2.x, pt2.y)
+                  new paper.Point(v1.x, v1.y),
+                  new paper.Point(v2.x, v2.y)
               );
           }
           
@@ -156,22 +169,22 @@ export class CanvasRenderer {
 
           if (selected) {
               path.strokeColor = new paper.Color('#00aaff');
-              path.strokeWidth = 3;
+              path.strokeWidth = 2.5;
               
-              const handle1 = new paper.Path.Circle(new paper.Point(pt1.x, pt1.y), 4);
-              handle1.fillColor = new paper.Color('#ffffff');
-              handle1.strokeColor = new paper.Color('#00aaff');
-              handle1.strokeWidth = 1.5;
-              handle1.strokeScaling = false;
+              const h1 = new paper.Path.Circle(new paper.Point(v1.x, v1.y), 4);
+              h1.fillColor = new paper.Color('#ffffff');
+              h1.strokeColor = new paper.Color('#00aaff');
+              h1.strokeWidth = 1;
+              h1.strokeScaling = false;
               
-              const handle2 = new paper.Path.Circle(new paper.Point(pt2.x, pt2.y), 4);
-              handle2.fillColor = new paper.Color('#ffffff');
-              handle2.strokeColor = new paper.Color('#00aaff');
-              handle2.strokeWidth = 1.5;
-              handle2.strokeScaling = false;
+              const h2 = new paper.Path.Circle(new paper.Point(v2.x, v2.y), 4);
+              h2.fillColor = new paper.Color('#ffffff');
+              h2.strokeColor = new paper.Color('#00aaff');
+              h2.strokeWidth = 1;
+              h2.strokeScaling = false;
           } else {
-              path.strokeColor = new paper.Color('#ffffff'); // White on dark
-              path.strokeWidth = 1.5;
+              path.strokeColor = new paper.Color('#ffffff');
+              path.strokeWidth = 1;
           }
           path.strokeScaling = false;
       }
@@ -217,33 +230,36 @@ export class CanvasRenderer {
                   }
               }
 
-              const pt1 = this.transformer.modelToScreen(liveX1, liveY1);
-              const pt2 = this.transformer.modelToScreen(liveX2, liveY2);
-              
               const group = new paper.Group();
               const color = detached ? new paper.Color('#bbbbbb') : new paper.Color('#777777');
               
-              const line = new paper.Path.Line(new paper.Point(pt1.x, pt1.y), new paper.Point(pt2.x, pt2.y));
+              const line = new paper.Path.Line(new paper.Point(liveX1, liveY1), new paper.Point(liveX2, liveY2));
               line.strokeColor = color;
               line.strokeWidth = 1;
+              line.strokeScaling = false;
               if (detached) line.dashArray = [4, 4];
               group.addChild(line);
 
               // Small ticks
-              const angle = Math.atan2(pt2.y - pt1.y, pt2.x - pt1.x);
-              const tickLength = 5;
+              const angle = Math.atan2(liveY2 - liveY1, liveX2 - liveX1);
+              const tickLengthModel = 5 / this.viewState.zoom; // Keep 5px visual length
+              
               const tick1 = new paper.Path.Line(
-                  new paper.Point(pt1.x - Math.sin(angle)*tickLength, pt1.y + Math.cos(angle)*tickLength),
-                  new paper.Point(pt1.x + Math.sin(angle)*tickLength, pt1.y - Math.cos(angle)*tickLength)
+                  new paper.Point(liveX1 - Math.sin(angle)*tickLengthModel, liveY1 + Math.cos(angle)*tickLengthModel),
+                  new paper.Point(liveX1 + Math.sin(angle)*tickLengthModel, liveY1 - Math.cos(angle)*tickLengthModel)
               );
               tick1.strokeColor = color;
+              tick1.strokeWidth = 1;
+              tick1.strokeScaling = false;
               group.addChild(tick1);
 
               const tick2 = new paper.Path.Line(
-                  new paper.Point(pt2.x - Math.sin(angle)*tickLength, pt2.y + Math.cos(angle)*tickLength),
-                  new paper.Point(pt2.x + Math.sin(angle)*tickLength, pt2.y - Math.cos(angle)*tickLength)
+                  new paper.Point(liveX2 - Math.sin(angle)*tickLengthModel, liveY2 + Math.cos(angle)*tickLengthModel),
+                  new paper.Point(liveX2 + Math.sin(angle)*tickLengthModel, liveY2 - Math.cos(angle)*tickLengthModel)
               );
               tick2.strokeColor = color;
+              tick2.strokeWidth = 1;
+              tick2.strokeScaling = false;
               group.addChild(tick2);
 
               // Label (Update if sticky and not detached)
@@ -253,11 +269,12 @@ export class CanvasRenderer {
                   labelText = `${liveDist.toFixed(2)} mm`;
               }
 
-              const text = new paper.PointText(new paper.Point((pt1.x + pt2.x) / 2, (pt1.y + pt2.y) / 2 - 5));
+              const text = new paper.PointText(new paper.Point((liveX1 + liveX2) / 2, (liveY1 + liveY2) / 2));
               text.content = labelText;
               text.fillColor = color;
-              text.fontSize = 11;
+              text.fontSize = 11 / this.viewState.zoom; // Hack to keep visual size same in scaled layer
               text.justification = 'center';
+              text.strokeScaling = false;
               if (detached) text.content += " (detached)";
               group.addChild(text);
 
@@ -269,7 +286,7 @@ export class CanvasRenderer {
   /**
    * Draws temporary interaction feedback (Ghosting & Snap Indicators)
    */
-  public drawFeedback(ghostPath: paper.Item | null, snapType: string, snapScreenPt: {x: number, y: number}): void {
+  public drawFeedback(ghostPath: paper.Item | null, snapType: string, snapModelPt: {x: number, y: number}): void {
       this.snapLayer.activate();
       this.snapLayer.removeChildren();
 
@@ -280,14 +297,15 @@ export class CanvasRenderer {
       if (snapType !== 'none') {
           // Visual Feedback for Snap
           let indicator: paper.Path;
-          const pt = new paper.Point(snapScreenPt.x, snapScreenPt.y);
+          const pt = new paper.Point(snapModelPt.x, snapModelPt.y);
+          const size = 5 / this.viewState.zoom; // Always 5px visual size
           
           if (snapType === 'endpoint') {
-              indicator = new paper.Path.Rectangle(new paper.Rectangle(pt.subtract(4), new paper.Size(8, 8)));
+              indicator = new paper.Path.Rectangle(new paper.Rectangle(pt.subtract(size), new paper.Size(size*2, size*2)));
           } else if (snapType === 'midpoint') {
-              indicator = new paper.Path.RegularPolygon(pt, 3, 5); // Triangle
+              indicator = new paper.Path.RegularPolygon(pt, 3, size * 1.2); 
           } else { // Grid
-              indicator = new paper.Path.Circle(pt, 3);
+              indicator = new paper.Path.Circle(pt, size);
           }
           
           indicator.strokeColor = new paper.Color('#00aa88');

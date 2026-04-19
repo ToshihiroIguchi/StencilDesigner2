@@ -23,6 +23,7 @@ window.onload = () => {
     
     // Inject dependencies into Renderer
     (canvasRenderer as any).selectionManager = selectionManager;
+    selectionManager.onSelectionChange = () => updateInspector();
 
     const graphProvider = {
         graph: featureTree.rebuild()
@@ -63,9 +64,76 @@ window.onload = () => {
                 featureEditor.deleteFeatures(selectionManager.selectedFeatureIds);
                 selectionManager.clear();
                 handleRebuild();
+                updateInspector();
             }
         }
     });
+
+    function updateInspector() {
+        const infoContent = document.getElementById('info-content');
+        if (!infoContent) return;
+
+        if (selectionManager.selectedFeatureIds.size === 0) {
+            infoContent.innerHTML = '<p>Select an item to see properties</p>';
+            return;
+        }
+
+        const selectedIds = Array.from(selectionManager.selectedFeatureIds);
+        const fId = selectedIds[0];
+        const feature = featureTree.features.find(f => f.id === fId);
+        
+        if (!feature) {
+            infoContent.innerHTML = '';
+            return;
+        }
+
+        let html = `<h4>${feature.type} Properties</h4>`;
+        html += `<p>ID: ${feature.id}</p>`;
+
+        if (feature.type === 'Line') {
+            const f = feature as any;
+            const len = Math.hypot(f.x2 - f.x1, f.y2 - f.y1);
+            html += `<label>Length (mm): <input type="number" step="0.001" value="${len.toFixed(3)}" data-param="length"></label>`;
+        } else if (feature.type === 'Rect') {
+            const f = feature as any;
+            const w = Math.abs(f.x2 - f.x1);
+            const h = Math.abs(f.y2 - f.y1);
+            html += `<label>Width (mm): <input type="number" step="0.001" value="${w.toFixed(3)}" data-param="width"></label>`;
+            html += `<label>Height (mm): <input type="number" step="0.001" value="${h.toFixed(3)}" data-param="height"></label>`;
+        } else if (feature.type === 'Fillet') {
+            const f = feature as any;
+            html += `<label>Radius (mm): <input type="number" step="0.001" value="${f.radius.toFixed(3)}" data-param="radius"></label>`;
+        }
+
+        infoContent.innerHTML = html;
+
+        // Bind inputs
+        infoContent.querySelectorAll('input').forEach(input => {
+            // Stop propagation to prevent global hotkeys (like Backspace/Delete)
+            input.addEventListener('keydown', (e) => e.stopPropagation());
+
+            // Real-time update (no history)
+            input.addEventListener('input', (e) => {
+                const param = (e.target as HTMLInputElement).dataset.param!;
+                const val = parseFloat((e.target as HTMLInputElement).value);
+                if (!isNaN(val)) {
+                    featureEditor.updateFeatureParameter(fId, param, val, false);
+                    handleRebuild();
+                }
+            });
+
+            // Commit on change (save history)
+            input.addEventListener('change', (e) => {
+                const param = (e.target as HTMLInputElement).dataset.param!;
+                const val = parseFloat((e.target as HTMLInputElement).value);
+                if (!isNaN(val)) {
+                    featureEditor.updateFeatureParameter(fId, param, val, true);
+                    handleRebuild();
+                    updateInspector(); // Refresh to canonicalize shown value if needed
+                }
+            });
+        });
+    }
 
     // History Buttons
     document.getElementById('btn-undo')?.addEventListener('click', () => {
@@ -127,6 +195,7 @@ window.onload = () => {
             const toolName = tool.charAt(0).toUpperCase() + tool.slice(1);
             interaction.activeTool = toolName as any;
             updateUI(toolName);
+            if (toolName === 'Select') updateInspector();
         });
     });
 
@@ -146,6 +215,7 @@ window.onload = () => {
         document.getElementById(`btn-${active.toLowerCase()}`)?.classList.add('active');
     }
     updateUI('Select');
+    updateInspector();
     
     (window as any).interaction = interaction;
     (window as any).canvasRenderer = canvasRenderer;
