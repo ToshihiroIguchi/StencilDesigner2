@@ -22,9 +22,18 @@
   </head>
   <body>
     <div id="toolbar">
-      <button id="btn-select" class="tool-btn"><span class="icon-placeholder"></span> Select</button>
-      <button id="btn-line" class="tool-btn"><span class="icon-placeholder"></span> Line</button>
-      <button id="btn-rect" class="tool-btn"><span class="icon-placeholder"></span> Rect</button>
+      <button id="btn-select" class="tool-btn active">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg>
+      </button>
+      <button id="btn-line" class="tool-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <button id="btn-rect" class="tool-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
+      </button>
+      <button id="btn-trim" class="tool-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+      </button>
       <div style="margin-left: 20px;">
         <span id="status-text" style="font-size:12px;color:#555;">Ready</span>
       </div>

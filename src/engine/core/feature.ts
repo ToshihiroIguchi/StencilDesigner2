@@ -12,7 +12,7 @@ export type FeatureId = string;
 
 export interface Feature {
     id: FeatureId;
-    type: 'Line' | 'Rect' | 'Circle';
+    type: 'Line' | 'Rect' | 'Circle' | 'Trim';
     // Topological Naming Foundation: Provides deterministic IDs for elements based on this feature
     generateTopology(graph: ModelGraph): void;
 }
@@ -86,6 +86,54 @@ export class CircleFeature implements Feature {
     }
 }
 
+export class TrimFeature implements Feature {
+    constructor(
+        public id: FeatureId,
+        public targetX: number,
+        public targetY: number
+    ) {}
+
+    type: 'Trim' = 'Trim';
+    
+    generateTopology(graph: ModelGraph): void {
+        // Handled during the post-intersection step in FeatureTree rebuild
+    }
+
+    applyTrim(graph: ModelGraph, toleranceRadius: number): void {
+        // Find closest edge to targetX, targetY and remove it
+        let bestDist = Infinity;
+        let bestEdgeId: string | null = null;
+        
+        for (const edge of graph.edges.values()) {
+            const v1 = graph.vertices.get(edge.u);
+            const v2 = graph.vertices.get(edge.v);
+            if (!v1 || !v2 || v1.x == null || v1.y == null || v2.x == null || v2.y == null) continue;
+            
+            const dist = this.distToSegment({x: this.targetX, y: this.targetY}, {x: v1.x, y: v1.y}, {x: v2.x, y: v2.y});
+            if (dist <= toleranceRadius && dist < bestDist) {
+                bestDist = dist;
+                bestEdgeId = edge.id;
+            }
+        }
+        
+        if (bestEdgeId) {
+            graph.edges.delete(bestEdgeId);
+            // Optionally clean up orphan vertices:
+            // This can be done by counting degrees or just leaving them. For now, just delete edge.
+        }
+    }
+
+    private distToSegment(p: {x:number, y:number}, v: {x:number, y:number}, w: {x:number, y:number}) {
+        const l2 = Math.pow(v.x - w.x, 2) + Math.pow(v.y - w.y, 2);
+        if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
+        let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+        t = Math.max(0, Math.min(1, t));
+        return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
+    }
+}
+
+import { IntersectionEngine } from './intersection';
+
 export class FeatureTree {
     features: Feature[] = [];
 
@@ -95,9 +143,24 @@ export class FeatureTree {
 
     rebuild(): ModelGraph {
         const graph = new ModelGraph();
+        
+        // 1. Base Geometry
         for (const feature of this.features) {
-            feature.generateTopology(graph);
+            if (feature.type !== 'Trim') {
+                feature.generateTopology(graph);
+            }
         }
+
+        // 2. Intersection Evaluation & Segment Splitting
+        IntersectionEngine.splitAllIntersections(graph);
+
+        // 3. Apply Modifiers (Trims)
+        for (const feature of this.features) {
+            if (feature.type === 'Trim') {
+                (feature as TrimFeature).applyTrim(graph, 1.0); // 1.0mm strict model tolerance for replay
+            }
+        }
+
         return graph;
     }
 }
