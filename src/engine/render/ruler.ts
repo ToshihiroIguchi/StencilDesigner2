@@ -18,7 +18,7 @@ export class RulerManager {
         this.layer.matrix = new paper.Matrix(); // Force identity for UI
 
         const bounds = paper.view.bounds;
-        const gridMm = ToleranceManager.getGridInterval(this.viewState.zoom);
+        const gridMm = ToleranceManager.unitsToMm(ToleranceManager.getGridIntervalUnits(this.viewState.zoom));
         
         const largeInterval = gridMm * 10;
         const mediumInterval = gridMm;

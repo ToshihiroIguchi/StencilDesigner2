@@ -1,10 +1,12 @@
+import type { ModelUnits } from './viewport';
+
 export type VertexId = string;
 export type EdgeId = string;
 
 export interface Vertex {
   id: VertexId;
-  x?: number;
-  y?: number;
+  x?: ModelUnits;
+  y?: ModelUnits;
 }
 
 export interface Edge {
@@ -12,8 +14,8 @@ export interface Edge {
   u: VertexId;
   v: VertexId;
   arcData?: {
-    origin: number[]; // [x, y]
-    radius: number;
+    origin: ModelUnits[]; // [x, y]
+    radius: ModelUnits;
     startAngle: number;
     endAngle: number;
   };
@@ -23,7 +25,7 @@ export class ModelGraph {
   public vertices: Map<VertexId, Vertex> = new Map();
   public edges: Map<EdgeId, Edge> = new Map();
 
-  addVertex(id: VertexId, x?: number, y?: number): void {
+  addVertex(id: VertexId, x?: ModelUnits, y?: ModelUnits): void {
     if (this.vertices.has(id)) {
       throw new Error(`Vertex ${id} already exists.`);
     }

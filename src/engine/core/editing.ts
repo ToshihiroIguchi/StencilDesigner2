@@ -1,4 +1,5 @@
 import { FeatureTree } from './feature';
+import { ToleranceManager } from './viewport';
 
 /**
  * Feature Editor
@@ -25,25 +26,29 @@ export class FeatureEditor {
         const feature = this.tree.features.find(f => f.id === featureId);
         if (!feature) return;
 
-        const v = value; 
+        const v = ToleranceManager.mmToUnits(value); 
 
         if (feature.type === 'Line') {
             const f = feature as any;
             if (param === 'length') {
-                const dx = f.x2 - f.x1;
-                const dy = f.y2 - f.y1;
+                const dx = Number(f.x2 - f.x1);
+                const dy = Number(f.y2 - f.y1);
                 const dist = Math.hypot(dx, dy);
-                if (dist > 1e-9) {
-                    f.x2 = f.x1 + (dx / dist) * v;
-                    f.y2 = f.y1 + (dy / dist) * v;
+                if (dist > 1e-6) {
+                    const dirX = dx / dist;
+                    const dirY = dy / dist;
+                    f.x2 = f.x1 + BigInt(Math.round(dirX * Number(v)));
+                    f.y2 = f.y1 + BigInt(Math.round(dirY * Number(v)));
                 }
             }
         } else if (feature.type === 'Rect') {
             const f = feature as any;
             if (param === 'width') {
-                f.x2 = f.x1 + v * Math.sign(f.x2 - f.x1 || 1);
+                const sx = (f.x2 >= f.x1) ? 1n : -1n;
+                f.x2 = f.x1 + v * sx;
             } else if (param === 'height') {
-                f.y2 = f.y1 + v * Math.sign(f.y2 - f.y1 || 1);
+                const sy = (f.y2 >= f.y1) ? 1n : -1n;
+                f.y2 = f.y1 + v * sy;
             }
         } else if (feature.type === 'Fillet') {
             const f = feature as any;

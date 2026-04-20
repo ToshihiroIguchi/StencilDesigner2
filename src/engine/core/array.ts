@@ -1,4 +1,5 @@
 import { FeatureTree, LineFeature, RectFeature } from './feature';
+import { ToleranceManager } from './viewport';
 
 export class ArrayCopyEngine {
     static generateFlatCopies(
@@ -6,11 +7,14 @@ export class ArrayCopyEngine {
         sourceIds: Set<string>,
         rows: number,
         cols: number,
-        pitchX: number,
-        pitchY: number
+        pitchX_mm: number,
+        pitchY_mm: number
     ): void {
         const sources = tree.features.filter(f => sourceIds.has(f.id));
         if (sources.length === 0) return;
+
+        const pitchX = ToleranceManager.mmToUnits(pitchX_mm);
+        const pitchY = ToleranceManager.mmToUnits(pitchY_mm);
 
         let cloneCounter = Date.now();
 
@@ -19,8 +23,8 @@ export class ArrayCopyEngine {
             for (let c = 0; c < cols; c++) {
                 if (r === 0 && c === 0) continue; // Skip original
                 
-                const dx = c * pitchX;
-                const dy = r * pitchY;
+                const dx = BigInt(c) * pitchX;
+                const dy = BigInt(r) * pitchY;
 
                 for (const src of sources) {
                     const newId = `clone_${++cloneCounter}`;

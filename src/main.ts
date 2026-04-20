@@ -11,8 +11,16 @@ import { FilletTool } from './engine/render/fillet_tool';
 import { ArrayCopyEngine } from './engine/core/array';
 import { TrimTool } from './engine/render/trim_tool';
 import { DimensionTool } from './engine/render/dimension_tool';
+import { ToleranceManager } from './engine/core/viewport';
 
 window.onload = () => {
+    console.log("[Main] Application Loading...");
+    
+    // Global Event Debugging
+    window.addEventListener('mousedown', (e) => {
+        console.debug(`[Global] MouseDown at (${e.clientX}, ${e.clientY}), Target:`, e.target);
+    }, true);
+
     const canvasRenderer = new CanvasRenderer('main-canvas');
     const featureTree = new FeatureTree();
     const selectionManager = new SelectionManager();
@@ -92,12 +100,14 @@ window.onload = () => {
 
         if (feature.type === 'Line') {
             const f = feature as any;
-            const len = Math.hypot(f.x2 - f.x1, f.y2 - f.y1);
+            const dx = ToleranceManager.unitsToMm(f.x2 - f.x1);
+            const dy = ToleranceManager.unitsToMm(f.y2 - f.y1);
+            const len = Math.hypot(dx, dy);
             html += `<label>Length (mm): <input type="number" step="0.001" value="${len.toFixed(3)}" data-param="length"></label>`;
         } else if (feature.type === 'Rect') {
             const f = feature as any;
-            const w = Math.abs(f.x2 - f.x1);
-            const h = Math.abs(f.y2 - f.y1);
+            const w = Math.abs(ToleranceManager.unitsToMm(f.x2 - f.x1));
+            const h = Math.abs(ToleranceManager.unitsToMm(f.y2 - f.y1));
             html += `<label>Width (mm): <input type="number" step="0.001" value="${w.toFixed(3)}" data-param="width"></label>`;
             html += `<label>Height (mm): <input type="number" step="0.001" value="${h.toFixed(3)}" data-param="height"></label>`;
         } else if (feature.type === 'Fillet') {
@@ -160,7 +170,6 @@ window.onload = () => {
         ArrayCopyEngine.generateFlatCopies(featureTree, selectionManager.selectedFeatureIds, rows, cols, pitchX, pitchY);
         handleRebuild();
         selectionManager.clear();
-        canvasRenderer.drawAll();
     });
 
     // Exporters
@@ -224,12 +233,22 @@ window.onload = () => {
 
     (window as any).addTestRect = () => {
         const id = `test_${Date.now()}`;
-        featureTree.addFeature(new RectFeature(id, -20, -20, 20, 20));
+        featureTree.addFeature(new RectFeature(
+            id, 
+            ToleranceManager.mmToUnits(-20), ToleranceManager.mmToUnits(-20), 
+            ToleranceManager.mmToUnits(20), ToleranceManager.mmToUnits(20)
+        ));
         handleRebuild();
         console.log("Test rectangle added at (-20,-20) to (20,20)");
     };
 
+    // Main Animation Loop
+    function tick() {
+        canvasRenderer.render();
+        requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+
     // Initial Sync
     handleRebuild();
 };
-

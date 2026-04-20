@@ -1,22 +1,26 @@
 import { ModelGraph } from './graph';
 import { CoordinateTransformer, ToleranceManager, ViewState } from './viewport';
+import type { ModelUnits } from './viewport';
 
 /**
- * Snap Engine
- * 
- * URL: https://en.wikipedia.org/wiki/Spatial_database#Spatial_index
- * Engineering Grounding: CADにおけるスナップ（最近接探索）は要素が増えるとO(N)では遅くなるため、
- * R-treeや四分木（Quadtree）等の空間分割アルゴリズムを用いるのが一般的です。
- * 本フェーズでは実装規模に合わせて総当たり探索を行いますが、抽象インターフェースは将来の空間インデックス導入に対応可能にしています。
+ * Snap Engine - Optimized for BigInt-Core
  */
 
 export type SnapType = 'none' | 'grid' | 'endpoint' | 'midpoint';
 
-export interface SnapResult {
-    modelPt: { x: number, y: number };
-    screenPt: { x: number, y: number };
+export interface SnapResultUnits {
+    modelPt: { x: ModelUnits, y: ModelUnits };
     type: SnapType;
-    vertexId?: string; // NEW: Track vertex for sticky dimensions
+    vertexId?: string;
+}
+
+export interface SnapResultScreen {
+    rawModelPt: { x: number, y: number };     // High-fidelity float (from cursor)
+    snappedModelPt: { x: number, y: number }; // Converted from units (for marker display)
+    modelUnits: { x: ModelUnits, y: ModelUnits }; // The truth (BigInt)
+    screenPt: { x: number, y: number };      // Screen position of snapped units
+    type: SnapType;
+    vertexId?: string;
 }
 
 export class SnapEngine {
@@ -27,29 +31,29 @@ export class SnapEngine {
     ) {}
 
     /**
-     * Finds the best snap point around a given screen coordinate.
-     * Evaluates in order of exactness: Endpoint > Midpoint > Grid 
-     * threshold is internally translated to topological model distance.
+     * Core snapping logic in BigInt space
      */
-    snap(screenX: number, screenY: number, screenRadius: number = 10): SnapResult {
-        const rawModelPt = this.transformer.screenToModel(screenX, screenY);
-        // Conver 10px to model mm radius
-        const modelRadius = screenRadius / this.viewState.zoom;
-        const gridMm = ToleranceManager.getGridInterval(this.viewState.zoom);
+    snapUnits(ux: ModelUnits, uy: ModelUnits, radiusUnits: ModelUnits): SnapResultUnits {
+        const gridUnits = ToleranceManager.getGridIntervalUnits(this.viewState.zoom);
 
-        let bestDistEndpoint = Infinity;
-        let endpointSnap: { x: number, y: number } | null = null;
+        let bestDistSqEndpoint: bigint | null = null;
+        let endpointSnap: { x: ModelUnits, y: ModelUnits } | null = null;
         let endpointId: string | null = null;
         
-        let bestDistMidpoint = Infinity;
-        let midpointSnap: { x: number, y: number } | null = null;
+        let bestDistSqMidpoint: bigint | null = null;
+        let midpointSnap: { x: ModelUnits, y: ModelUnits } | null = null;
+
+        const radSq = radiusUnits * radiusUnits;
 
         // 1. Endpoint Check
         for (const v of this.graph.vertices.values()) {
-            if (v.x == null || v.y == null) continue;
-            const dist = Math.hypot(v.x - rawModelPt.x, v.y - rawModelPt.y);
-            if (dist <= modelRadius && dist < bestDistEndpoint) {
-                bestDistEndpoint = dist;
+            if (v.x === undefined || v.y === undefined) continue;
+            const dx = v.x - ux;
+            const dy = v.y - uy;
+            const distSq = dx * dx + dy * dy;
+            
+            if (distSq <= radSq && (bestDistSqEndpoint === null || distSq < bestDistSqEndpoint)) {
+                bestDistSqEndpoint = distSq;
                 endpointSnap = { x: v.x, y: v.y };
                 endpointId = v.id;
             }
@@ -59,46 +63,87 @@ export class SnapEngine {
         for (const e of this.graph.edges.values()) {
             const v1 = this.graph.vertices.get(e.u);
             const v2 = this.graph.vertices.get(e.v);
-            if (!v1 || !v2 || v1.x == null || v1.y == null || v2.x == null || v2.y == null) continue;
+            if (!v1 || !v2 || v1.x === undefined || v1.y === undefined || v2.x === undefined || v2.y === undefined) continue;
 
-            const mx = (v1.x + v2.x) / 2;
-            const my = (v1.y + v2.y) / 2;
+            const mx = (v1.x + v2.x) / 2n;
+            const my = (v1.y + v2.y) / 2n;
 
-            const dist = Math.hypot(mx - rawModelPt.x, my - rawModelPt.y);
-            if (dist <= modelRadius && dist < bestDistMidpoint) {
-                bestDistMidpoint = dist;
+            const dx = mx - ux;
+            const dy = my - uy;
+            const distSq = dx * dx + dy * dy;
+
+            if (distSq <= radSq && (bestDistSqMidpoint === null || distSq < bestDistSqMidpoint)) {
+                bestDistSqMidpoint = distSq;
                 midpointSnap = { x: mx, y: my };
             }
         }
 
-        // Target grid snap
-        const gx = Math.round(rawModelPt.x / gridMm) * gridMm;
-        const gy = Math.round(rawModelPt.y / gridMm) * gridMm;
-        const distGrid = Math.hypot(gx - rawModelPt.x, gy - rawModelPt.y);
+        // 3. Grid Snap
+        // x = round(u / grid) * grid
+        // In integer: (u + grid/2) / grid * grid? 
+        // No, let's be careful with negative numbers.
+        const snapToGrid = (val: bigint, step: bigint) => {
+            const half = step / 2n;
+            const remainder = val % step;
+            if (val >= 0n) {
+                return (remainder >= half) ? val + (step - remainder) : val - remainder;
+            } else {
+                // val is negative, e.g. -15 % 10 = -5
+                return (remainder <= -half) ? val - (step + remainder) : val - remainder;
+            }
+        };
 
-        let finalModelPt = { x: ToleranceManager.canonicalize(rawModelPt.x), y: ToleranceManager.canonicalize(rawModelPt.y) };
-        let finalType: SnapType = 'none';
-        let finalVertexId: string | undefined = undefined;
+        const gX = snapToGrid(ux, gridUnits);
+        const gY = snapToGrid(uy, gridUnits);
+        const dxG = gX - ux;
+        const dyG = gY - uy;
+        const distSqGrid = dxG * dxG + dyG * dyG;
 
         if (endpointSnap) {
-            finalModelPt = endpointSnap;
-            finalType = 'endpoint';
-            finalVertexId = endpointId || undefined;
+            return { modelPt: endpointSnap, type: 'endpoint', vertexId: endpointId || undefined };
         } else if (midpointSnap) {
-            finalModelPt = midpointSnap;
-            finalType = 'midpoint';
-        } else if (distGrid <= modelRadius) {
-            finalModelPt = { x: gx, y: gy };
-            finalType = 'grid';
+            return { modelPt: midpointSnap, type: 'midpoint' };
+        } else if (distSqGrid <= radSq) {
+            return { modelPt: { x: gX, y: gY }, type: 'grid' };
         }
 
-        const finalScreenPt = this.transformer.modelToScreen(finalModelPt.x, finalModelPt.y);
+        // FALLBACK: Always return a stable grid point, but with type 'none' to allow smooth visuals
+        return { modelPt: { x: gX, y: gY }, type: 'none' };
+    }
 
-        return {
-            modelPt: finalModelPt,
-            screenPt: finalScreenPt,
-            type: finalType,
-            vertexId: finalVertexId
+    /**
+     * Screen-space API for UI interaction (Float bounded)
+     */
+    snapScreen(screenX: number, screenY: number, screenRadius: number = 15): SnapResultScreen {
+        const inputMm = this.transformer.screenToModel(screenX, screenY);
+        const inputUnits = {
+            x: ToleranceManager.mmToUnits(inputMm.x),
+            y: ToleranceManager.mmToUnits(inputMm.y)
         };
+        
+        const radiusUnits = ToleranceManager.mmToUnits(screenRadius / this.viewState.zoom);
+        
+        const result = this.snapUnits(inputUnits.x, inputUnits.y, radiusUnits);
+        
+        const screenPt = this.transformer.modelUnitsToScreen(result.modelPt.x, result.modelPt.y);
+        
+        return {
+            rawModelPt: inputMm,
+            snappedModelPt: {
+                x: ToleranceManager.unitsToMm(result.modelPt.x),
+                y: ToleranceManager.unitsToMm(result.modelPt.y)
+            },
+            modelUnits: result.modelPt,
+            screenPt: screenPt,
+            type: result.type,
+            vertexId: result.vertexId
+        };
+    }
+
+    /**
+     * Legacy API for tests
+     */
+    snap(screenX: number, screenY: number, screenRadius: number = 15): SnapResultScreen {
+        return this.snapScreen(screenX, screenY, screenRadius);
     }
 }

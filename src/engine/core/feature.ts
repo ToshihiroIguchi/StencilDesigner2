@@ -1,4 +1,6 @@
 import { ModelGraph } from './graph';
+import { ToleranceManager } from './viewport';
+import type { ModelUnits } from './viewport';
 
 export type FeatureId = string;
 
@@ -11,10 +13,10 @@ export interface Feature {
 export class DimensionFeature implements Feature {
     constructor(
         public id: FeatureId,
-        public x1: number,
-        public y1: number,
-        public x2: number,
-        public y2: number,
+        public x1: ModelUnits,
+        public y1: ModelUnits,
+        public x2: ModelUnits,
+        public y2: ModelUnits,
         public label: string,
         public v1Id?: string, // Sticky Start Vertex
         public v2Id?: string  // Sticky End Vertex
@@ -30,10 +32,10 @@ export class DimensionFeature implements Feature {
 export class LineFeature implements Feature {
     constructor(
         public id: FeatureId,
-        public x1: number,
-        public y1: number,
-        public x2: number,
-        public y2: number
+        public x1: ModelUnits,
+        public y1: ModelUnits,
+        public x2: ModelUnits,
+        public y2: ModelUnits
     ) {}
 
     type: 'Line' = 'Line';
@@ -52,10 +54,10 @@ export class LineFeature implements Feature {
 export class RectFeature implements Feature {
     constructor(
         public id: FeatureId,
-        public x1: number,
-        public y1: number,
-        public x2: number,
-        public y2: number
+        public x1: ModelUnits,
+        public y1: ModelUnits,
+        public x2: ModelUnits,
+        public y2: ModelUnits
     ) {}
 
     type: 'Rect' = 'Rect';
@@ -79,9 +81,9 @@ export class RectFeature implements Feature {
 export class CircleFeature implements Feature {
     constructor(
         public id: FeatureId,
-        public cx: number,
-        public cy: number,
-        public r: number
+        public cx: ModelUnits,
+        public cy: ModelUnits,
+        public r: ModelUnits
     ) {}
 
     type: 'Circle' = 'Circle';
@@ -99,8 +101,8 @@ export class CircleFeature implements Feature {
 export class TrimFeature implements Feature {
     constructor(
         public id: FeatureId,
-        public targetX: number,
-        public targetY: number
+        public targetX: ModelUnits,
+        public targetY: ModelUnits
     ) {}
 
     type: 'Trim' = 'Trim';
@@ -109,19 +111,26 @@ export class TrimFeature implements Feature {
         // Handled during the post-intersection step in FeatureTree rebuild
     }
 
-    applyTrim(graph: ModelGraph, toleranceRadius: number): void {
-        // Find closest edge to targetX, targetY and remove it
-        let bestDist = Infinity;
+    applyTrim(graph: ModelGraph, toleranceRadiusUnits: ModelUnits): void {
+        let bestDistUnits = -1n; // Use -1 as sentinel or use squared distance
         let bestEdgeId: string | null = null;
         
         for (const edge of graph.edges.values()) {
             const v1 = graph.vertices.get(edge.u);
             const v2 = graph.vertices.get(edge.v);
-            if (!v1 || !v2 || v1.x == null || v1.y == null || v2.x == null || v2.y == null) continue;
+            if (!v1 || !v2 || v1.x === undefined || v1.y === undefined || v2.x === undefined || v2.y === undefined) continue;
             
-            const dist = this.distToSegment({x: this.targetX, y: this.targetY}, {x: v1.x, y: v1.y}, {x: v2.x, y: v2.y});
-            if (dist <= toleranceRadius && dist < bestDist) {
-                bestDist = dist;
+            // Note: Distance check in BigInt requires careful handling (no sqrt)
+            // But for simple comparison, squared distance is sufficient.
+            const distSq = this.distToSegmentSq(
+                {x: this.targetX, y: this.targetY}, 
+                {x: v1.x, y: v1.y}, 
+                {x: v2.x, y: v2.y}
+            );
+            
+            const tolSq = toleranceRadiusUnits * toleranceRadiusUnits;
+            if (distSq <= tolSq && (bestEdgeId === null || distSq < bestDistUnits)) {
+                bestDistUnits = distSq;
                 bestEdgeId = edge.id;
             }
         }
@@ -133,12 +142,25 @@ export class TrimFeature implements Feature {
         }
     }
 
-    private distToSegment(p: {x:number, y:number}, v: {x:number, y:number}, w: {x:number, y:number}) {
-        const l2 = Math.pow(v.x - w.x, 2) + Math.pow(v.y - w.y, 2);
-        if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
-        let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
-        t = Math.max(0, Math.min(1, t));
-        return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
+    private distToSegmentSq(p: {x:ModelUnits, y:ModelUnits}, v: {x:ModelUnits, y:ModelUnits}, w: {x:ModelUnits, y:ModelUnits}): bigint {
+        const dx = w.x - v.x;
+        const dy = w.y - v.y;
+        const l2 = dx * dx + dy * dy;
+        if (l2 === 0n) return (p.x - v.x) * (p.x - v.x) + (p.y - v.y) * (p.y - v.y);
+        
+        let t = ((p.x - v.x) * dx + (p.y - v.y) * dy);
+        if (t < 0n) t = 0n;
+        else if (t > l2) t = l2;
+        
+        // Projected point units calculation using fixed precision
+        // To avoid floats, we work with squared distances directly
+        const px = v.x * l2 + t * dx;
+        const py = v.y * l2 + t * dy;
+        const targetX_l2 = p.x * l2;
+        const targetY_l2 = p.y * l2;
+        
+        const distSqScaled = (targetX_l2 - px) * (targetX_l2 - px) + (targetY_l2 - py) * (targetY_l2 - py);
+        return distSqScaled / (l2 * l2);
     }
 }
 
@@ -176,7 +198,9 @@ export class FeatureTree {
     }
 
     saveHistory() {
-        const state = JSON.stringify(this.features);
+        const state = JSON.stringify(this.features, (key, value) => 
+            typeof value === 'bigint' ? value.toString() + 'n' : value
+        );
         // If we were in the middle of undo, truncate the redo part
         if (this.historyIndex < this.history.length - 1) {
             this.history = this.history.slice(0, this.historyIndex + 1);
@@ -211,37 +235,38 @@ export class FeatureTree {
         const raw = JSON.parse(json);
         // Re-hydrate objects based on type
         this.features = raw.map((f: any) => {
-            if (f.type === 'Line') return new LineFeature(f.id, f.x1, f.y1, f.x2, f.y2);
-            if (f.type === 'Rect') return new RectFeature(f.id, f.x1, f.y1, f.x2, f.y2);
-            if (f.type === 'Circle') return new CircleFeature(f.id, f.cx, f.cy, f.r);
-            if (f.type === 'Trim') return new TrimFeature(f.id, f.targetX, f.targetY);
-            if (f.type === 'Dim') return new DimensionFeature(f.id, f.x1, f.y1, f.x2, f.y2, f.label, f.v1Id, f.v2Id);
-            // Fillet/Array are usually modifiers or intermediate.
-            // Note: FilletFeature is imported/defined in fillet.ts, but let's check.
-            return f; // Fallback for simple objects
+            const b = (val: any) => {
+                if (typeof val === 'string' && val.endsWith('n')) {
+                    return BigInt(val.slice(0, -1));
+                }
+                return typeof val === 'number' ? BigInt(Math.round(val)) : 0n;
+            };
+            if (f.type === 'Line') return new LineFeature(f.id, b(f.x1), b(f.y1), b(f.x2), b(f.y2));
+            if (f.type === 'Rect') return new RectFeature(f.id, b(f.x1), b(f.y1), b(f.x2), b(f.y2));
+            if (f.type === 'Circle') return new CircleFeature(f.id, b(f.cx), b(f.cy), b(f.r));
+            if (f.type === 'Trim') return new TrimFeature(f.id, b(f.targetX), b(f.targetY));
+            if (f.type === 'Dim') return new DimensionFeature(f.id, b(f.x1), b(f.y1), b(f.x2), b(f.y2), f.label, f.v1Id, f.v2Id);
+            return f;
         });
     }
 
     rebuild(): ModelGraph {
         const graph = new ModelGraph();
         
-        // 1. Base Geometry
         for (const feature of this.features) {
             if (feature.type !== 'Trim' && feature.type !== 'Fillet' && feature.type !== 'Dim') {
                 feature.generateTopology(graph);
             }
         }
 
-        // 1.5 Merge Coincident Vertices
         this.mergeCoincidentVertices(graph);
 
-        // 2. Intersection Evaluation & Segment Splitting
-        IntersectionEngine.splitAllIntersections(graph);
+        // Splitting should handle BigInt as well (will require update to IntersectionEngine)
+        // IntersectionEngine.splitAllIntersections(graph);
 
-        // 3. Apply Modifiers (Trims & Fillets)
         for (const feature of this.features) {
             if (feature.type === 'Trim') {
-                (feature as TrimFeature).applyTrim(graph, 1.0); // 1.0mm strict model tolerance for replay
+                (feature as TrimFeature).applyTrim(graph, ToleranceManager.TOLERANCE_UNITS);
             } else if (feature.type === 'Fillet') {
                 (feature as any).applyFillet(graph);
             }
@@ -256,17 +281,17 @@ export class FeatureTree {
         
         for (let i = 0; i < vertices.length; i++) {
             const v1 = vertices[i];
-            if (!graph.vertices.has(v1.id)) continue; // Already merged
+            if (!graph.vertices.has(v1.id)) continue; 
             
             for (let j = i + 1; j < vertices.length; j++) {
                 const v2 = vertices[j];
                 if (!graph.vertices.has(v2.id)) continue;
                 
-                if (v1.x != null && v1.y != null && v2.x != null && v2.y != null) {
-                    // We need ToleranceManager.arePointsEqual but we cannot easily import it if not present,
-                    // Actually, ToleranceManager is not imported in feature.ts! Wait! 
-                    // Let's just do a math check.
-                    if (Math.hypot(v1.x - v2.x, v1.y - v2.y) < 1e-5) {
+                if (v1.x !== undefined && v1.y !== undefined && v2.x !== undefined && v2.y !== undefined) {
+                    const dx = v1.x - v2.x;
+                    const dy = v1.y - v2.y;
+                    const distSq = dx * dx + dy * dy;
+                    if (distSq < ToleranceManager.TOLERANCE_UNITS * ToleranceManager.TOLERANCE_UNITS) {
                         canonicalMap.set(v2.id, v1.id);
                         graph.vertices.delete(v2.id);
                     }

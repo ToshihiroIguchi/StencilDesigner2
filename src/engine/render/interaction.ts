@@ -8,16 +8,22 @@ import { TrimTool } from './trim_tool';
 import { FilletTool } from './fillet_tool';
 import { DimensionTool } from './dimension_tool';
 import { HUDManager } from './hud';
+import { ToleranceManager } from '../core/viewport';
+import type { ModelUnits } from '../core/viewport';
+import type { SnapResultScreen } from '../core/snap';
+import { InteractionContext, InteractionState } from './interaction_context';
+import type { InteractionPoint } from './interaction_context';
 
 export class InteractionController {
     public activeTool: 'Line' | 'Rect' | 'Select' | 'Trim' | 'Fillet' | 'Dim' = 'Select';
-    private currentStart: {x: number, y: number} | null = null;
+    private currentStart: {x: ModelUnits, y: ModelUnits} | null = null;
     private featureIdCounter = 0;
-    private lastMouseModel: {x: number, y: number} = {x: 0, y: 0};
+    private lastMouseModel: {x: ModelUnits, y: ModelUnits} = {x: 0n, y: 0n};
     private lastMouseScreen: paper.Point = new paper.Point(0, 0);
 
     private tool: paper.Tool;
     private hudManager: HUDManager;
+    private context: InteractionContext;
 
     constructor(
         private canvasRenderer: CanvasRenderer,
@@ -28,6 +34,7 @@ export class InteractionController {
         private filletTool: FilletTool,
         private dimensionTool: DimensionTool
     ) {
+        this.context = new InteractionContext();
         // Register Paper.js Tool
         this.tool = new paper.Tool();
         this.tool.activate();
@@ -62,18 +69,28 @@ export class InteractionController {
         }, { passive: false });
 
         this.tool.onMouseDown = (event: paper.ToolEvent) => {
+            console.debug(`[Interaction] onMouseDown: Tool=${this.activeTool}, Pt=${event.point}`);
+            const rawMm = this.canvasRenderer.transformer.screenToModel(event.point.x, event.point.y);
+            this.context.updateRaw(rawMm, this.canvasRenderer.viewState.zoom);
+            const pt = this.context.getPoint((x,y) => this.snapEngine.snapScreen(x,y, 15));
+
             if (this.activeTool === 'Trim' || this.activeTool === 'Fillet') return;
             if (this.activeTool === 'Dim') {
-                const snap = this.snapEngine.snap(event.point.x, event.point.y);
-                this.dimensionTool.onMouseDown(snap);
+                this.dimensionTool.onMouseDown({ 
+                    modelPt: pt.visualMm, 
+                    type: pt.snapType, 
+                    vertexId: pt.vertexId 
+                });
                 return;
             }
             if (this.activeTool === 'Select') {
-                this.currentStart = { x: event.point.x, y: event.point.y }; 
+                (this as any)._selectStartScreen = { x: event.point.x, y: event.point.y }; 
                 return;
             }
-            const snapRes = this.snapEngine.snap(event.point.x, event.point.y);
-            this.currentStart = snapRes.modelPt;
+
+            this.currentStart = pt.logicalUnits;
+            this.context.setState(InteractionState.DRAG);
+            
             if (this.activeTool === 'Line' || this.activeTool === 'Rect') {
                 this.hudManager.activateInput();
             }
@@ -81,10 +98,16 @@ export class InteractionController {
 
         this.tool.onMouseDrag = (event: paper.ToolEvent) => {
             if (this.activeTool === 'Trim' || this.activeTool === 'Fillet' || this.activeTool === 'Dim') return;
-            if (!this.currentStart) return;
+            
+            const rawMm = this.canvasRenderer.transformer.screenToModel(event.point.x, event.point.y);
+            this.context.updateRaw(rawMm, this.canvasRenderer.viewState.zoom);
+            const pt = this.context.getPoint((x,y) => this.snapEngine.snapScreen(x,y, 15));
+
             if (this.activeTool === 'Select') {
+                const start = (this as any)._selectStartScreen;
+                if (!start) return;
                 const rect = new paper.Path.Rectangle(
-                    new paper.Point(this.currentStart.x, this.currentStart.y),
+                    new paper.Point(start.x, start.y),
                     event.point
                 );
                 rect.strokeColor = new paper.Color('#00aaee');
@@ -92,15 +115,20 @@ export class InteractionController {
                 rect.strokeWidth = 1;
                 rect.dashArray = [4, 4];
                 rect.strokeScaling = false;
-                this.canvasRenderer.drawFeedback(rect, 'none', {x:0, y:0});
+                this.canvasRenderer.drawFeedback(rect, 'none', {x: 0n, y: 0n});
                 return;
             }
-            this.handleGhosting(event.point, event.modifiers.shift);
+            if (!this.currentStart) return;
+            this.lastMouseModel = pt.logicalUnits;
+            this.lastMouseScreen = event.point;
+            this.handleGhosting(pt);
         };
 
         this.tool.onMouseMove = (event: paper.ToolEvent) => {
-            const snap = this.snapEngine.snap(event.point.x, event.point.y);
-            
+            const rawMm = this.canvasRenderer.transformer.screenToModel(event.point.x, event.point.y);
+            this.context.updateRaw(rawMm, this.canvasRenderer.viewState.zoom);
+            const pt = this.context.getPoint((x,y) => this.snapEngine.snapScreen(x,y, 15));
+
             if (this.activeTool === 'Trim') {
                 this.trimTool.onMouseMove(event.point);
                 return;
@@ -110,16 +138,26 @@ export class InteractionController {
                 return;
             }
             if (this.activeTool === 'Dim') {
-                this.dimensionTool.onMouseMove(event.point, snap);
+                this.dimensionTool.onMouseMove(event.point, { 
+                    modelPt: pt.rawMm, 
+                    snappedPt: pt.visualMm,
+                    type: pt.snapType, 
+                    vertexId: pt.vertexId 
+                });
                 return;
             }
             if (this.activeTool === 'Select') return;
-            this.lastMouseModel = snap.modelPt;
+            
+            this.lastMouseModel = pt.logicalUnits;
             this.lastMouseScreen = event.point;
-            this.handleGhosting(event.point, event.modifiers.shift); 
+            this.handleGhosting(pt); 
         };
 
         this.tool.onMouseUp = (event: paper.ToolEvent) => {
+            const rawMm = this.canvasRenderer.transformer.screenToModel(event.point.x, event.point.y);
+            this.context.updateRaw(rawMm, this.canvasRenderer.viewState.zoom);
+            const pt = this.context.getPoint((x,y) => this.snapEngine.snapScreen(x,y, 15));
+
             if (this.activeTool === 'Trim') {
                 this.trimTool.onMouseUp(event.point);
                 return;
@@ -129,62 +167,91 @@ export class InteractionController {
                 return;
             }
             if (this.activeTool === 'Dim') {
-                const snap = this.snapEngine.snap(event.point.x, event.point.y);
-                this.dimensionTool.onMouseUp(snap);
+                this.dimensionTool.onMouseUp({ 
+                    modelPt: pt.visualMm, 
+                    type: pt.snapType, 
+                    vertexId: pt.vertexId 
+                });
                 return;
             }
-            if (!this.currentStart) return;
             
             if (this.activeTool === 'Select') {
-                const startScreen = this.currentStart;
+                const startScreen = (this as any)._selectStartScreen;
+                if (!startScreen) return;
                 const endScreen = event.point;
                 const dist = Math.hypot(endScreen.x - startScreen.x, endScreen.y - startScreen.y);
                 
                 const graph = (this.canvasRenderer as any).currentGraph as ModelGraph;
 
                 if (dist < 2) { // Single click
-                    const threshold = 10 / this.canvasRenderer.viewState.zoom;
+                    const threshold = 15 / this.canvasRenderer.viewState.zoom;
                     const modelPt = this.canvasRenderer.transformer.screenToModel(endScreen.x, endScreen.y);
-                    const hitFeatureId = this.selectionManager.hitTestSegment(modelPt, graph, threshold);
                     
-                    if (hitFeatureId) {
-                        this.selectionManager.select(hitFeatureId, event.modifiers.shift);
+                    // Hit test for segment selection
+                    let bestDist = Infinity;
+                    let hitFid: string | null = null;
+                    for (const edge of graph.edges.values()) {
+                        const v1 = graph.vertices.get(edge.u);
+                        const v2 = graph.vertices.get(edge.v);
+                        if (!v1 || !v2 || v1.x === undefined || v2.x === undefined) continue;
+                        const dMm = this.distToSegmentMm(modelPt, 
+                            { x: ToleranceManager.unitsToMm(v1.x), y: ToleranceManager.unitsToMm(v1.y) },
+                            { x: ToleranceManager.unitsToMm(v2.x), y: ToleranceManager.unitsToMm(v2.y) }
+                        );
+                        if (dMm < threshold && dMm < bestDist) {
+                            bestDist = dMm;
+                            hitFid = edge.id.split('_')[0]; 
+                        }
+                    }
+                    
+                    if (hitFid) {
+                        this.selectionManager.select(hitFid, event.modifiers.shift);
                     } else if (!event.modifiers.shift) {
                         this.selectionManager.clear();
                     }
                 } else { // Box Select
-                    const p1 = this.canvasRenderer.transformer.screenToModel(startScreen.x, startScreen.y);
-                    const p2 = this.canvasRenderer.transformer.screenToModel(endScreen.x, endScreen.y);
-                    const min = { x: Math.min(p1.x, p2.x), y: Math.min(p1.y, p2.y) };
-                    const max = { x: Math.max(p1.x, p2.x), y: Math.max(p1.y, p2.y) };
+                    const pUnits1 = this.canvasRenderer.transformer.screenToModelUnits(startScreen.x, startScreen.y);
+                    const pUnits2 = this.canvasRenderer.transformer.screenToModelUnits(endScreen.x, endScreen.y);
+                    const minX = pUnits1.x < pUnits2.x ? pUnits1.x : pUnits2.x;
+                    const maxX = pUnits1.x > pUnits2.x ? pUnits1.x : pUnits2.x;
+                    const minY = pUnits1.y < pUnits2.y ? pUnits1.y : pUnits2.y;
+                    const maxY = pUnits1.y > pUnits2.y ? pUnits1.y : pUnits2.y;
                     
-                    const found = this.selectionManager.boxSelect(min, max, graph);
                     if (!event.modifiers.shift) this.selectionManager.clear();
-                    found.forEach(id => this.selectionManager.select(id, true));
+                    for (const v of graph.vertices.values()) {
+                        if (v.x !== undefined && v.y !== undefined) {
+                            if (v.x >= minX && v.x <= maxX && v.y >= minY && v.y <= maxY) {
+                                // Find feature ID from vertex name (e.g. f_0_v0 -> f_0)
+                                const fId = v.id.split('_v')[0];
+                                this.selectionManager.select(fId, true);
+                            }
+                        }
+                    }
                 }
                 
-                this.canvasRenderer.drawAll();
-                this.canvasRenderer.drawFeedback(null, 'none', {x:0, y:0});
-                this.currentStart = null;
+                this.canvasRenderer.geometryLayerDirty = true; 
+                this.canvasRenderer.drawFeedback(null, 'none', {x: 0n, y: 0n});
+                (this as any)._selectStartScreen = null;
                 return;
             }
             
-            // Drawing logic
-            const rawSnap = this.snapEngine.snap(event.point.x, event.point.y);
-            let endPt = rawSnap.modelPt;
+            if (!this.currentStart) return;
+
+            // Drawing logic - Unified Atomic Path
+            let endPtUnits = pt.logicalUnits;
             
-            if (event.modifiers.shift) endPt = this.applyShiftConstraint(this.currentStart, endPt);
+            if (event.modifiers.shift) endPtUnits = this.applyShiftConstraint(this.currentStart, endPtUnits);
             
             const fId = `f_${this.featureIdCounter++}`;
             if (this.activeTool === 'Line') {
-                this.featureTree.addFeature(new LineFeature(fId, this.currentStart.x, this.currentStart.y, endPt.x, endPt.y));
+                this.featureTree.addFeature(new LineFeature(fId, this.currentStart.x, this.currentStart.y, endPtUnits.x, endPtUnits.y));
             } else if (this.activeTool === 'Rect') {
-                this.featureTree.addFeature(new RectFeature(fId, this.currentStart.x, this.currentStart.y, endPt.x, endPt.y));
+                this.featureTree.addFeature(new RectFeature(fId, this.currentStart.x, this.currentStart.y, endPtUnits.x, endPtUnits.y));
             }
 
             const graph = this.featureTree.rebuild();
             this.canvasRenderer.updateGraph(graph);
-            this.canvasRenderer.drawFeedback(null, 'none', {x:0, y:0});
+            this.canvasRenderer.drawFeedback(null, 'none', {x: 0n, y: 0n});
             
             this.currentStart = null;
             this.hudManager.deactivateInput();
@@ -192,99 +259,122 @@ export class InteractionController {
         };
     }
 
-    private handleGhosting(screenPt: paper.Point, shiftPressed: boolean) {
-        const snapRes = this.snapEngine.snap(screenPt.x, screenPt.y);
-        let endModel = snapRes.modelPt;
+    private distToSegmentMm(p: {x:number, y:number}, v: {x:number, y:number}, w: {x:number, y:number}) {
+        const l2 = Math.pow(v.x - w.x, 2) + Math.pow(v.y - w.y, 2);
+        if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
+        let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+        t = Math.max(0, Math.min(1, t));
+        return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
+    }
 
+    private handleGhosting(pt: InteractionPoint) {
         if (this.currentStart) {
-            if (shiftPressed) {
-                endModel = this.applyShiftConstraint(this.currentStart, endModel);
+            let endUnits = pt.logicalUnits;
+            // Shift constraint on discrete units
+            if (this.tool.event && (this.tool.event as any).modifiers.shift) {
+                endUnits = this.applyShiftConstraint(this.currentStart, endUnits);
             }
             
+            const startMm = { 
+                x: ToleranceManager.unitsToMm(this.currentStart.x), 
+                y: ToleranceManager.unitsToMm(this.currentStart.y) 
+            };
+            const endMm = {
+                x: ToleranceManager.unitsToMm(endUnits.x),
+                y: ToleranceManager.unitsToMm(endUnits.y)
+            };
+
             let ghost: paper.Path;
             if (this.activeTool === 'Line') {
-                ghost = new paper.Path.Line(new paper.Point(this.currentStart.x, this.currentStart.y), new paper.Point(endModel.x, endModel.y));
+                ghost = new paper.Path.Line(new paper.Point(startMm.x, startMm.y), new paper.Point(endMm.x, endMm.y));
             } else {
-                ghost = new paper.Path.Rectangle(new paper.Point(this.currentStart.x, this.currentStart.y), new paper.Point(endModel.x, endModel.y));
+                ghost = new paper.Path.Rectangle(new paper.Point(startMm.x, startMm.y), new paper.Point(endMm.x, endMm.y));
             }
             ghost.strokeColor = new paper.Color('#00aa88');
             ghost.strokeWidth = 1;
             ghost.dashArray = [4, 4];
             ghost.strokeScaling = false;
 
-            this.canvasRenderer.drawFeedback(ghost, snapRes.type, endModel);
+            // Feedback marker on normalized units
+            this.canvasRenderer.drawFeedback(ghost, pt.snapType, endUnits);
 
-            // Update HUD
+            // Update HUD with atomic dimensions
             const dims: any = {};
             if (this.activeTool === 'Line') {
-                dims.l = Math.hypot(endModel.x - this.currentStart.x, endModel.y - this.currentStart.y);
+                dims.l = Math.hypot(endMm.x - startMm.x, endMm.y - startMm.y);
             } else if (this.activeTool === 'Rect') {
-                dims.w = Math.abs(endModel.x - this.currentStart.x);
-                dims.h = Math.abs(endModel.y - this.currentStart.y);
+                dims.w = Math.abs(endMm.x - startMm.x);
+                dims.h = Math.abs(endMm.y - startMm.y);
             }
             this.hudManager.draw(this.lastMouseScreen, dims);
         } else {
-            this.canvasRenderer.drawFeedback(null, snapRes.type, snapRes.modelPt);
+            this.canvasRenderer.drawFeedback(null, pt.snapType, pt.logicalUnits);
             this.hudManager.clear();
         }
     }
 
-    private applyShiftConstraint(start: {x:number, y:number}, end: {x:number, y:number}): {x:number, y:number} {
+    private applyShiftConstraint(start: {x:ModelUnits, y:ModelUnits}, end: {x:ModelUnits, y:ModelUnits}): {x:ModelUnits, y:ModelUnits} {
         const dx = end.x - start.x;
         const dy = end.y - start.y;
         
+        const absX = dx < 0n ? -dx : dx;
+        const absY = dy < 0n ? -dy : dy;
+
         if (this.activeTool === 'Line') {
-            if (Math.abs(dx) > Math.abs(dy)) {
+            if (absX > absY) {
                 return { x: end.x, y: start.y };
             } else {
                 return { x: start.x, y: end.y };
             }
         } else if (this.activeTool === 'Rect') {
-            const signX = Math.sign(dx) || 1;
-            const signY = Math.sign(dy) || 1;
-            const min = Math.min(Math.abs(dx), Math.abs(dy));
-            return { x: start.x + min * signX, y: start.y + min * signY };
+            const signX = dx < 0n ? -1n : 1n;
+            const signY = dy < 0n ? -1n : 1n;
+            const minAbs = absX < absY ? absX : absY;
+            return { x: start.x + minAbs * signX, y: start.y + minAbs * signY };
         }
         return end;
     }
 
     private applyNumericalConstraint() {
         if (!this.currentStart) return;
-        const val = this.hudManager.getInputValue();
-        if (val === null) return;
+        const valMm = this.hudManager.getInputValue();
+        if (valMm === null) return;
+        const valUnits = ToleranceManager.mmToUnits(valMm);
 
         const dx = this.lastMouseModel.x - this.currentStart.x;
         const dy = this.lastMouseModel.y - this.currentStart.y;
-        const dist = Math.hypot(dx, dy);
         
         // Final endpoint based on value
-        let finalEnd = { x: this.lastMouseModel.x, y: this.lastMouseModel.y };
+        let finalEndUnits = { x: this.lastMouseModel.x, y: this.lastMouseModel.y };
         if (this.activeTool === 'Line') {
-            const dirX = dist > 1e-9 ? dx / dist : 1; // Default to right if no direction
-            const dirY = dist > 1e-9 ? dy / dist : 0;
-            finalEnd = {
-                x: this.currentStart.x + dirX * val,
-                y: this.currentStart.y + dirY * val
+            const distSq = dx * dx + dy * dy;
+            const dist = Math.sqrt(Number(distSq));
+            const dirX = dist > 1e-6 ? Number(dx) / dist : 1; 
+            const dirY = dist > 1e-6 ? Number(dy) / dist : 0;
+            
+            finalEndUnits = {
+                x: this.currentStart.x + BigInt(Math.round(dirX * Number(valUnits))),
+                y: this.currentStart.y + BigInt(Math.round(dirY * Number(valUnits)))
             };
         } else if (this.activeTool === 'Rect') {
-            const sx = Math.sign(dx) || 1;
-            const sy = Math.sign(dy) || 1;
-            finalEnd = {
-                x: this.currentStart.x + val * sx,
-                y: this.currentStart.y + val * sy
+            const sx = dx < 0n ? -1n : 1n;
+            const sy = dy < 0n ? -1n : 1n;
+            finalEndUnits = {
+                x: this.currentStart.x + valUnits * sx,
+                y: this.currentStart.y + valUnits * sy
             };
         }
 
         const fId = `f_${this.featureIdCounter++}`;
         if (this.activeTool === 'Line') {
-            this.featureTree.addFeature(new LineFeature(fId, this.currentStart.x, this.currentStart.y, finalEnd.x, finalEnd.y));
+            this.featureTree.addFeature(new LineFeature(fId, this.currentStart.x, this.currentStart.y, finalEndUnits.x, finalEndUnits.y));
         } else if (this.activeTool === 'Rect') {
-            this.featureTree.addFeature(new RectFeature(fId, this.currentStart.x, this.currentStart.y, finalEnd.x, finalEnd.y));
+            this.featureTree.addFeature(new RectFeature(fId, this.currentStart.x, this.currentStart.y, finalEndUnits.x, finalEndUnits.y));
         }
 
         const graph = this.featureTree.rebuild();
         this.canvasRenderer.updateGraph(graph);
-        this.canvasRenderer.drawFeedback(null, 'none', {x:0, y:0});
+        this.canvasRenderer.drawFeedback(null, 'none', {x: 0n, y: 0n});
         
         this.currentStart = null;
         this.hudManager.deactivateInput();
@@ -316,7 +406,6 @@ export class InteractionController {
         viewState.offsetY = mouseScreen.y - scaledPt.y;
 
         viewState.log();
-        this.canvasRenderer.drawAll();
     }
 
     private resetZoom() {
@@ -364,7 +453,6 @@ export class InteractionController {
             this.canvasRenderer.viewState.offsetY = viewH / 2 - scaledCenter.y;
         }
         
-        this.canvasRenderer.drawAll();
         this.canvasRenderer.viewState.log();
     }
 }

@@ -1,9 +1,11 @@
 import paper from 'paper';
 import { CanvasRenderer } from './canvas';
 import { FeatureTree, DimensionFeature } from '../core/feature';
+import { ToleranceManager } from '../core/viewport';
+import type { ModelUnits } from '../core/viewport';
 
 export class DimensionTool {
-    private startPt: {x: number, y: number} | null = null;
+    private startPt: {x: ModelUnits, y: ModelUnits} | null = null;
     private startVid: string | undefined = undefined;
     private featureIdCounter = 0;
 
@@ -12,18 +14,34 @@ export class DimensionTool {
         private featureTree: FeatureTree
     ) {}
 
-    onMouseDown(snap: {modelPt: {x:number, y:number}, vertexId?: string}) {
-        this.startPt = snap.modelPt;
+    onMouseDown(snap: {modelPt: {x:number, y:number}, modelUnits?: {x:ModelUnits, y:ModelUnits}, vertexId?: string}) {
+        // We use modelUnits if provided, or convert from modelPt
+        if (snap.modelUnits) {
+            this.startPt = snap.modelUnits;
+        } else {
+            this.startPt = {
+                x: ToleranceManager.mmToUnits(snap.modelPt.x),
+                y: ToleranceManager.mmToUnits(snap.modelPt.y)
+            };
+        }
         this.startVid = snap.vertexId;
     }
 
-    onMouseMove(screenPt: {x: number, y: number}, snap: {modelPt: {x:number, y:number}}) {
+    onMouseMove(screenPt: {x: number, y: number}, snap: {modelPt: {x:number, y:number}, snappedPt?: {x:number, y:number}, modelUnits?: {x:ModelUnits, y:ModelUnits}, type?: string}) {
         if (!this.startPt) return;
 
-        const endModel = snap.modelPt;
-        const dist = Math.hypot(endModel.x - this.startPt.x, endModel.y - this.startPt.y);
+        // Hybrid logic: use snappedPt if we have a real snap target, otherwise raw float
+        const useSnapped = snap.type && snap.type !== 'none';
+        const displayPt = (useSnapped && snap.snappedPt) ? snap.snappedPt : snap.modelPt;
 
-        const pt1 = this.canvasRenderer.transformer.modelToScreen(this.startPt.x, this.startPt.y);
+        const dxMm = displayPt.x - ToleranceManager.unitsToMm(this.startPt.x);
+        const dyMm = displayPt.y - ToleranceManager.unitsToMm(this.startPt.y);
+        const distMm = Math.hypot(dxMm, dyMm);
+
+        const pt1 = this.canvasRenderer.transformer.modelToScreen(
+            ToleranceManager.unitsToMm(this.startPt.x), 
+            ToleranceManager.unitsToMm(this.startPt.y)
+        );
         const pt2 = screenPt;
 
         // Visual feedback
@@ -36,29 +54,35 @@ export class DimensionTool {
         group.addChild(line);
 
         const text = new paper.PointText(new paper.Point((pt1.x + pt2.x) / 2, (pt1.y + pt2.y) / 2 - 10));
-        text.content = `${dist.toFixed(2)} mm`;
+        text.content = `${distMm.toFixed(2)} mm`;
         text.fillColor = new paper.Color('#ffaa00');
         text.fontSize = 12;
         text.justification = 'center';
         group.addChild(text);
 
-        this.canvasRenderer.drawFeedback(group, 'none', {x: 0, y: 0});
+        this.canvasRenderer.drawFeedback(group, 'none', {x: 0n, y: 0n});
     }
 
-    onMouseUp(snap: {modelPt: {x:number, y:number}, vertexId?: string}) {
+    onMouseUp(snap: {modelPt: {x:number, y:number}, modelUnits?: {x:ModelUnits, y:ModelUnits}, vertexId?: string}) {
         if (!this.startPt) return;
 
-        const endModel = snap.modelPt;
-        const dist = Math.hypot(endModel.x - this.startPt.x, endModel.y - this.startPt.y);
+        const endUnits = snap.modelUnits || {
+            x: ToleranceManager.mmToUnits(snap.modelPt.x),
+            y: ToleranceManager.mmToUnits(snap.modelPt.y)
+        };
 
-        if (dist > 0.1) {
+        const dxMm = ToleranceManager.unitsToMm(endUnits.x - this.startPt.x);
+        const dyMm = ToleranceManager.unitsToMm(endUnits.y - this.startPt.y);
+        const distMm = Math.hypot(dxMm, dyMm);
+
+        if (distMm > 0.01) {
             const fId = `dim_${Date.now()}_${this.featureIdCounter++}`;
-            const label = `${dist.toFixed(2)} mm`;
+            const label = `${distMm.toFixed(2)} mm`;
             // Sticky logic: store v1Id and v2Id if they exist
             this.featureTree.addFeature(new DimensionFeature(
                 fId, 
                 this.startPt.x, this.startPt.y, 
-                endModel.x, endModel.y, 
+                endUnits.x, endUnits.y, 
                 label,
                 this.startVid,
                 snap.vertexId
@@ -70,6 +94,6 @@ export class DimensionTool {
 
         this.startPt = null;
         this.startVid = undefined;
-        this.canvasRenderer.drawFeedback(null, 'none', {x: 0, y: 0});
+        this.canvasRenderer.drawFeedback(null, 'none', {x: 0n, y: 0n});
     }
 }
