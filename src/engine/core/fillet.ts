@@ -1,7 +1,6 @@
 import makerjs from 'makerjs';
 import type { Feature, FeatureId } from './feature';
 import { ModelGraph, createRawVertex, createRawEdge, LinearSpatialIndex, type ID } from './graph';
-import { ToleranceManager } from './viewport';
 
 export class FilletFeature implements Feature {
     constructor(
@@ -68,8 +67,8 @@ export class FilletFeature implements Feature {
             const arcPoints = makerjs.point.fromArc(arc);
             if (!arcPoints || arcPoints.length < 2) return;
 
-            const ptA = { x: ToleranceManager.canonicalize(arcPoints[0][0]), y: ToleranceManager.canonicalize(arcPoints[0][1]) };
-            const ptB = { x: ToleranceManager.canonicalize(arcPoints[1][0]), y: ToleranceManager.canonicalize(arcPoints[1][1]) };
+            const ptA = { x: arcPoints[0][0], y: arcPoints[0][1] };
+            const ptB = { x: arcPoints[1][0], y: arcPoints[1][1] };
 
             // Determine which point belongs to which edge
             // A line from Other to Corner: ptA or ptB is closer to line1? 

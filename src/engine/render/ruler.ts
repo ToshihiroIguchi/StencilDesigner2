@@ -1,70 +1,77 @@
 import paper from 'paper';
-import { ViewState, CoordinateTransformer, ToleranceManager } from '../core/viewport';
+import { type ViewTransform, worldToScreen, screenToWorld } from '../core/viewport';
+import { getTheme } from '../core/theme';
 
 /**
  * Ruler Manager
  * Draws X and Y reference rulers linked to the viewport.
+ * Now using View Layer separation (explicit transforms).
  */
 export class RulerManager {
     constructor(
-        private viewState: ViewState,
-        private transformer: CoordinateTransformer,
+        private view: ViewTransform,
         private layer: paper.Layer
     ) {}
 
     draw(): void {
         this.layer.activate();
         this.layer.removeChildren();
-        this.layer.matrix = new paper.Matrix(); // Force identity for UI
-
-        const bounds = paper.view.bounds;
-        const gridMm = ToleranceManager.getGridInterval(this.viewState.zoom);
         
-        const largeInterval = gridMm * 10;
-        const mediumInterval = gridMm;
-        const smallInterval = gridMm / 10;
+        const theme = getTheme();
+        const bounds = paper.view.bounds;
+        
+        // Define intervals in μm
+        // 1mm = 1000μm, 10mm = 10000μm, 0.1mm = 100μm
+        const scale = this.view.scale;
+        
+        let small = 1000n; // 1mm
+        let medium = 5000n; // 5mm
+        let large = 10000n; // 10mm
 
-        this.drawXRuler(bounds, largeInterval, mediumInterval, smallInterval);
-        this.drawYRuler(bounds, largeInterval, mediumInterval, smallInterval);
+        if (scale > 0.5) { // Highly zoomed in
+            small = 100n;
+            medium = 500n;
+            large = 1000n;
+        } else if (scale < 0.02) { // Zoomed out
+            small = 10000n;
+            medium = 50000n;
+            large = 100000n;
+        }
+
+        this.drawXRuler(bounds, large, medium, small, theme);
+        this.drawYRuler(bounds, large, medium, small, theme);
     }
 
-    private drawXRuler(bounds: paper.Rectangle, large: number, medium: number, small: number): void {
+    private drawXRuler(bounds: paper.Rectangle, large: bigint, medium: bigint, small: bigint, theme: any): void {
         const rulerHeight = 25;
-        const p1 = this.transformer.screenToModel(bounds.left, 0);
-        const p2 = this.transformer.screenToModel(bounds.right, 0);
+        const pTL = screenToWorld(bounds.left, bounds.top, this.view);
+        const pBR = screenToWorld(bounds.right, bounds.bottom, this.view);
         
-        const startX_model = Math.floor(Math.min(p1.x, p2.x) / small) * small;
-        const endX_model = Math.ceil(Math.max(p1.x, p2.x) / small) * small;
+        const startX_world = (pTL.x < pBR.x ? pTL.x : pBR.x) / small * small - small;
+        const endX_world = (pTL.x > pBR.x ? pTL.x : pBR.x) / small * small + small;
 
-        for (let x = startX_model; x <= endX_model; x += small) {
-            const screenX = this.transformer.modelToScreen(x, 0).x;
-            if (screenX < bounds.left || screenX > bounds.right) continue;
+        for (let x = startX_world; x <= endX_world; x += small) {
+            const screen = worldToScreen(x, 0n, this.view);
+            if (screen.sx < bounds.left || screen.sx > bounds.right) continue;
 
             let h = 5;
             let isLarge = false;
             let isMedium = false;
 
-            if (Math.abs(x % large) < 1e-9 || Math.abs(x % large - large) < 1e-9) {
-                h = 15;
-                isLarge = true;
-            } else if (Math.abs(x % medium) < 1e-9 || Math.abs(x % medium - medium) < 1e-9) {
-                h = 10;
-                isMedium = true;
-            }
+            if (x % large === 0n) { h = 15; isLarge = true; }
+            else if (x % medium === 0n) { h = 10; isMedium = true; }
 
             const line = new paper.Path.Line(
-                new paper.Point(screenX, bounds.top),
-                new paper.Point(screenX, bounds.top + h)
+                new paper.Point(screen.sx, bounds.top),
+                new paper.Point(screen.sx, bounds.top + h)
             );
-            line.strokeColor = new paper.Color('#888888');
+            line.strokeColor = new paper.Color(theme.gridMajor);
             line.strokeWidth = 1;
-            line.strokeScaling = false;
 
-            if (isLarge || (isMedium && this.viewState.zoom > 50)) {
-                const text = new paper.PointText(new paper.Point(screenX + 2, bounds.top + 18));
-                const isInt = Math.abs(x - Math.round(x)) < 1e-7;
-                text.content = isInt ? Math.round(x).toString() : x.toFixed(1);
-                text.fillColor = new paper.Color('#aaaaaa');
+            if (isLarge || (isMedium && this.view.scale > 0.1)) {
+                const text = new paper.PointText(new paper.Point(screen.sx + 2, bounds.top + 18));
+                text.content = (Number(x) / 1000).toString(); // Display in mm
+                text.fillColor = new paper.Color(theme.edge);
                 text.fontSize = 10;
             }
         }
@@ -73,46 +80,39 @@ export class RulerManager {
             new paper.Point(bounds.left, bounds.top + rulerHeight),
             new paper.Point(bounds.right, bounds.top + rulerHeight)
         );
-        base.strokeColor = new paper.Color('#444444');
+        base.strokeColor = new paper.Color(theme.gridMajor);
     }
 
-    private drawYRuler(bounds: paper.Rectangle, large: number, medium: number, small: number): void {
+    private drawYRuler(bounds: paper.Rectangle, large: bigint, medium: bigint, small: bigint, theme: any): void {
         const rulerWidth = 25;
-        const p1 = this.transformer.screenToModel(0, bounds.top);
-        const p2 = this.transformer.screenToModel(0, bounds.bottom);
+        const pTL = screenToWorld(bounds.left, bounds.top, this.view);
+        const pBR = screenToWorld(bounds.right, bounds.bottom, this.view);
         
-        const startY_model = Math.floor(Math.min(p1.y, p2.y) / small) * small;
-        const endY_model = Math.ceil(Math.max(p1.y, p2.y) / small) * small;
+        const startY_world = (pTL.y < pBR.y ? pTL.y : pBR.y) / small * small - small;
+        const endY_world = (pTL.y > pBR.y ? pTL.y : pBR.y) / small * small + small;
 
-        for (let y = startY_model; y <= endY_model; y += small) {
-            const screenY = this.transformer.modelToScreen(0, y).y;
-            if (screenY < bounds.top || screenY > bounds.bottom) continue;
+        for (let y = startY_world; y <= endY_world; y += small) {
+            const screen = worldToScreen(0n, y, this.view);
+            if (screen.sy < bounds.top || screen.sy > bounds.bottom) continue;
 
             let w = 5;
             let isLarge = false;
             let isMedium = false;
 
-            if (Math.abs(y % large) < 1e-9 || Math.abs(y % large - large) < 1e-9) {
-                w = 15;
-                isLarge = true;
-            } else if (Math.abs(y % medium) < 1e-9 || Math.abs(y % medium - medium) < 1e-9) {
-                w = 10;
-                isMedium = true;
-            }
+            if (y % large === 0n) { w = 15; isLarge = true; }
+            else if (y % medium === 0n) { w = 10; isMedium = true; }
 
             const line = new paper.Path.Line(
-                new paper.Point(bounds.left, screenY),
-                new paper.Point(bounds.left + w, screenY)
+                new paper.Point(bounds.left, screen.sy),
+                new paper.Point(bounds.left + w, screen.sy)
             );
-            line.strokeColor = new paper.Color('#888888');
+            line.strokeColor = new paper.Color(theme.gridMajor);
             line.strokeWidth = 1;
-            line.strokeScaling = false;
 
-            if (isLarge || (isMedium && this.viewState.zoom > 50)) {
-                const text = new paper.PointText(new paper.Point(bounds.left + 2, screenY - 2));
-                const isInt = Math.abs(y - Math.round(y)) < 1e-7;
-                text.content = isInt ? Math.round(y).toString() : y.toFixed(1);
-                text.fillColor = new paper.Color('#aaaaaa');
+            if (isLarge || (isMedium && this.view.scale > 0.1)) {
+                const text = new paper.PointText(new paper.Point(bounds.left + 2, screen.sy - 2));
+                text.content = (Number(y) / 1000).toString();
+                text.fillColor = new paper.Color(theme.edge);
                 text.fontSize = 10;
                 text.rotate(-90);
             }
@@ -122,6 +122,6 @@ export class RulerManager {
             new paper.Point(bounds.left + rulerWidth, bounds.top),
             new paper.Point(bounds.left + rulerWidth, bounds.bottom)
         );
-        base.strokeColor = new paper.Color('#444444');
+        base.strokeColor = new paper.Color(theme.gridMajor);
     }
 }
