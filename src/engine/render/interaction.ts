@@ -335,10 +335,10 @@ export class InteractionController {
             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
             for (const v of graph.vertices.values()) {
                 if (v.x == null || v.y == null) continue;
-                minX = Math.min(minX, v.x);
-                minY = Math.min(minY, v.y);
-                maxX = Math.max(maxX, v.x);
-                maxY = Math.max(maxY, v.y);
+                minX = Math.min(minX, Number(v.x)/1000);
+                minY = Math.min(minY, Number(v.y)/1000);
+                maxX = Math.max(maxX, Number(v.x)/1000);
+                maxY = Math.max(maxY, Number(v.y)/1000);
             }
             
             const modelW = maxX - minX || 1;

@@ -130,34 +130,15 @@ export class CanvasRenderer {
       if (!this.currentGraph) return;
 
       for (const edge of this.currentGraph.edges.values()) {
-          const v1 = this.currentGraph.vertices.get(edge.u);
-          const v2 = this.currentGraph.vertices.get(edge.v);
-          if (!v1 || !v2 || v1.x == null || v1.y == null || v2.x == null || v2.y == null) continue;
+          const v1 = this.currentGraph.vertices.get(edge.v1);
+          const v2 = this.currentGraph.vertices.get(edge.v2);
+          if (!v1 || !v2 || v1.isDeleted || v2.isDeleted) continue;
           
           let path: paper.Path;
-          if (edge.arcData) {
-              const startAngleRad = edge.arcData.startAngle * Math.PI / 180;
-              const endAngleRad = edge.arcData.endAngle * Math.PI / 180;
-              let midAngleRad = startAngleRad + (endAngleRad - startAngleRad) / 2;
-              
-              if (endAngleRad < startAngleRad) {
-                  midAngleRad = startAngleRad + (endAngleRad + 2 * Math.PI - startAngleRad) / 2;
-              }
-
-              const mx = edge.arcData.origin[0] + edge.arcData.radius * Math.cos(midAngleRad);
-              const my = edge.arcData.origin[1] + edge.arcData.radius * Math.sin(midAngleRad);
-              
-              path = new paper.Path.Arc(
-                  new paper.Point(v1.x, v1.y),
-                  new paper.Point(mx, my),
-                  new paper.Point(v2.x, v2.y)
-              );
-          } else {
-              path = new paper.Path.Line(
-                  new paper.Point(v1.x, v1.y),
-                  new paper.Point(v2.x, v2.y)
-              );
-          }
+          path = new paper.Path.Line(
+              new paper.Point(Number(v1.x) / 1000, Number(v1.y) / 1000),
+              new paper.Point(Number(v2.x) / 1000, Number(v2.y) / 1000)
+          );
           
           let selected = false;
           if (this.selectionManager) {
@@ -171,13 +152,13 @@ export class CanvasRenderer {
               path.strokeColor = new paper.Color('#00aaff');
               path.strokeWidth = 2.5;
               
-              const h1 = new paper.Path.Circle(new paper.Point(v1.x, v1.y), 4);
+              const h1 = new paper.Path.Circle(new paper.Point(Number(v1.x) / 1000, Number(v1.y) / 1000), 4);
               h1.fillColor = new paper.Color('#ffffff');
               h1.strokeColor = new paper.Color('#00aaff');
               h1.strokeWidth = 1;
               h1.strokeScaling = false;
               
-              const h2 = new paper.Path.Circle(new paper.Point(v2.x, v2.y), 4);
+              const h2 = new paper.Path.Circle(new paper.Point(Number(v2.x) / 1000, Number(v2.y) / 1000), 4);
               h2.fillColor = new paper.Color('#ffffff');
               h2.strokeColor = new paper.Color('#00aaff');
               h2.strokeWidth = 1;
@@ -215,16 +196,16 @@ export class CanvasRenderer {
 
               if (dim.v1Id) {
                   const v1 = graph.vertices.get(dim.v1Id);
-                  if (v1 && v1.x != null && v1.y != null) {
-                      liveX1 = v1.x; liveY1 = v1.y;
+                  if (v1 && !v1.isDeleted) {
+                      liveX1 = Number(v1.x) / 1000; liveY1 = Number(v1.y) / 1000;
                   } else {
                       detached = true;
                   }
               }
               if (dim.v2Id) {
                   const v2 = graph.vertices.get(dim.v2Id);
-                  if (v2 && v2.x != null && v2.y != null) {
-                      liveX2 = v2.x; liveY2 = v2.y;
+                  if (v2 && !v2.isDeleted) {
+                      liveX2 = Number(v2.x) / 1000; liveY2 = Number(v2.y) / 1000;
                   } else {
                       detached = true;
                   }

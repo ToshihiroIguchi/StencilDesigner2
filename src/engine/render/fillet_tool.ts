@@ -29,11 +29,11 @@ export class FilletTool {
             // Check if degree is 2
             let deg = 0;
             for (const edge of graph.edges.values()) {
-                if (edge.u === vid || edge.v === vid) deg++;
+                if (edge.v1 === vid || edge.v2 === vid) deg++;
             }
             if (deg !== 2) continue;
 
-            const dist = Math.hypot(v.x - modelPt.x, v.y - modelPt.y);
+            const dist = Math.hypot(Number(v.x)/1000 - modelPt.x, Number(v.y)/1000 - modelPt.y);
             if (dist <= threshold && dist < bestDist) {
                 bestDist = dist;
                 targetVertexId = vid;
@@ -42,7 +42,7 @@ export class FilletTool {
         }
 
         if (targetVertexId) {
-            const ptScreen = this.canvasRenderer.transformer.modelToScreen(targetV.x, targetV.y);
+            const ptScreen = this.canvasRenderer.transformer.modelToScreen(Number(targetV.x)/1000, Number(targetV.y)/1000);
             
             const ghost = new paper.Path.Circle(new paper.Point(ptScreen.x, ptScreen.y), 6);
             ghost.strokeColor = new paper.Color('#aa00ff');
@@ -71,11 +71,11 @@ export class FilletTool {
             if (v.x == null || v.y == null) continue;
             let deg = 0;
             for (const edge of graph.edges.values()) {
-                if (edge.u === vid || edge.v === vid) deg++;
+                if (edge.v1 === vid || edge.v2 === vid) deg++;
             }
             if (deg !== 2) continue;
 
-            const dist = Math.hypot(v.x - modelPt.x, v.y - modelPt.y);
+            const dist = Math.hypot(Number(v.x)/1000 - modelPt.x, Number(v.y)/1000 - modelPt.y);
             if (dist <= threshold) {
                 hit = true; break;
             }

@@ -27,11 +27,11 @@ export class TrimTool {
         let targetEdge: any = null;
 
         for (const edge of graph.edges.values()) {
-            const v1 = graph.vertices.get(edge.u);
-            const v2 = graph.vertices.get(edge.v);
-            if (!v1 || !v2 || v1.x == null || v1.y == null || v2.x == null || v2.y == null) continue;
+            const v1 = graph.vertices.get(edge.v1);
+            const v2 = graph.vertices.get(edge.v2);
+            if (!v1 || !v2 || v1.isDeleted || v2.isDeleted) continue;
             
-            const dist = this.distToSegment(modelPt, {x: v1.x, y: v1.y}, {x: v2.x, y: v2.y});
+            const dist = this.distToSegment(modelPt, {x: Number(v1.x)/1000, y: Number(v1.y)/1000}, {x: Number(v2.x)/1000, y: Number(v2.y)/1000});
             if (dist <= threshold && dist < bestDist) {
                 bestDist = dist;
                 targetEdge = edge;
@@ -39,11 +39,11 @@ export class TrimTool {
         }
 
         if (targetEdge) {
-            const v1 = graph.vertices.get(targetEdge.u)!;
-            const v2 = graph.vertices.get(targetEdge.v)!;
+            const v1 = graph.vertices.get(targetEdge.v1)!;
+            const v2 = graph.vertices.get(targetEdge.v2)!;
             
-            const pt1 = this.canvasRenderer.transformer.modelToScreen(v1.x!, v1.y!);
-            const pt2 = this.canvasRenderer.transformer.modelToScreen(v2.x!, v2.y!);
+            const pt1 = this.canvasRenderer.transformer.modelToScreen(Number(v1.x)/1000, Number(v1.y)/1000);
+            const pt2 = this.canvasRenderer.transformer.modelToScreen(Number(v2.x)/1000, Number(v2.y)/1000);
             
             const ghost = new paper.Path.Line(new paper.Point(pt1.x, pt1.y), new paper.Point(pt2.x, pt2.y));
             ghost.strokeColor = new paper.Color('#ff0000'); // Red dash highlight
@@ -71,10 +71,10 @@ export class TrimTool {
         // If it does, we record it.
         let hit = false;
         for (const edge of graph.edges.values()) {
-            const v1 = graph.vertices.get(edge.u);
-            const v2 = graph.vertices.get(edge.v);
-            if (!v1 || !v2 || v1.x == null || v1.y == null || v2.x == null || v2.y == null) continue;
-            const dist = this.distToSegment(modelPt, {x: v1.x, y: v1.y}, {x: v2.x, y: v2.y});
+            const v1 = graph.vertices.get(edge.v1);
+            const v2 = graph.vertices.get(edge.v2);
+            if (!v1 || !v2 || v1.isDeleted || v2.isDeleted) continue;
+            const dist = this.distToSegment(modelPt, {x: Number(v1.x)/1000, y: Number(v1.y)/1000}, {x: Number(v2.x)/1000, y: Number(v2.y)/1000});
             if (dist <= threshold) {
                 hit = true; break;
             }

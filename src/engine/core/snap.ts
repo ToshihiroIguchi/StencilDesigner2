@@ -46,23 +46,24 @@ export class SnapEngine {
 
         // 1. Endpoint Check
         for (const v of this.graph.vertices.values()) {
-            if (v.x == null || v.y == null) continue;
-            const dist = Math.hypot(v.x - rawModelPt.x, v.y - rawModelPt.y);
+            const vxMm = Number(v.x) / 1000;
+            const vyMm = Number(v.y) / 1000;
+            const dist = Math.hypot(vxMm - rawModelPt.x, vyMm - rawModelPt.y);
             if (dist <= modelRadius && dist < bestDistEndpoint) {
                 bestDistEndpoint = dist;
-                endpointSnap = { x: v.x, y: v.y };
+                endpointSnap = { x: vxMm, y: vyMm };
                 endpointId = v.id;
             }
         }
 
         // 2. Midpoint Check
         for (const e of this.graph.edges.values()) {
-            const v1 = this.graph.vertices.get(e.u);
-            const v2 = this.graph.vertices.get(e.v);
-            if (!v1 || !v2 || v1.x == null || v1.y == null || v2.x == null || v2.y == null) continue;
+            const v1 = this.graph.vertices.get(e.v1);
+            const v2 = this.graph.vertices.get(e.v2);
+            if (!v1 || !v2) continue;
 
-            const mx = (v1.x + v2.x) / 2;
-            const my = (v1.y + v2.y) / 2;
+            const mx = (Number(v1.x) / 1000 + Number(v2.x) / 1000) / 2;
+            const my = (Number(v1.y) / 1000 + Number(v2.y) / 1000) / 2;
 
             const dist = Math.hypot(mx - rawModelPt.x, my - rawModelPt.y);
             if (dist <= modelRadius && dist < bestDistMidpoint) {

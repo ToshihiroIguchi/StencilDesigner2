@@ -20,8 +20,8 @@ export class LMSolverBridge {
     const state = new Float64Array(vertices.length * 2);
     
     vertices.forEach((v, idx) => {
-      state[idx * 2] = v.x ?? 0;
-      state[idx * 2 + 1] = v.y ?? 0;
+      state[idx * 2] = Number(v.x) / 1000;
+      state[idx * 2 + 1] = Number(v.y) / 1000;
     });
     
     return state;
@@ -38,8 +38,8 @@ export class LMSolverBridge {
     }
 
     vertices.forEach((v, idx) => {
-      v.x = this.canonicalize(state[idx * 2]);
-      v.y = this.canonicalize(state[idx * 2 + 1]);
+      v.x = BigInt(Math.round(this.canonicalize(state[idx * 2]) * 1000));
+      v.y = BigInt(Math.round(this.canonicalize(state[idx * 2 + 1]) * 1000));
     });
   }
 

@@ -43,11 +43,11 @@ export class SelectionManager {
         let bestFeatureId: string | null = null;
         
         for (const edge of graph.edges.values()) {
-            const v1 = graph.vertices.get(edge.u);
-            const v2 = graph.vertices.get(edge.v);
-            if (!v1 || !v2 || v1.x == null || v1.y == null || v2.x == null || v2.y == null) continue;
+            const v1 = graph.vertices.get(edge.v1);
+            const v2 = graph.vertices.get(edge.v2);
+            if (!v1 || !v2 || v1.isDeleted || v2.isDeleted) continue;
             
-            const dist = this.distToSegment(pt, {x: v1.x, y: v1.y}, {x: v2.x, y: v2.y});
+            const dist = this.distToSegment(pt, {x: Number(v1.x)/1000, y: Number(v1.y)/1000}, {x: Number(v2.x)/1000, y: Number(v2.y)/1000});
             if (dist <= thresholdModelRadius && dist < bestDist) {
                 bestDist = dist;
                 bestFeatureId = this.extractFeatureIdFromElementId(edge.id);
@@ -60,8 +60,10 @@ export class SelectionManager {
         const found = new Set<string>();
         // Simple approach: if any vertex of a feature is within the box, select the feature.
         for (const vertex of graph.vertices.values()) {
-            if (vertex.x == null || vertex.y == null) continue;
-            if (vertex.x >= min.x && vertex.y >= min.y && vertex.x <= max.x && vertex.y <= max.y) {
+            if (vertex.isDeleted) continue;
+            const vx = Number(vertex.x)/1000;
+            const vy = Number(vertex.y)/1000;
+            if (vx >= min.x && vy >= min.y && vx <= max.x && vy <= max.y) {
                 const fId = this.extractFeatureIdFromElementId(vertex.id);
                 if (fId) found.add(fId);
             }
