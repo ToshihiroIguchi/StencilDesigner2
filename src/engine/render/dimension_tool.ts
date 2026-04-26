@@ -1,9 +1,10 @@
 import paper from 'paper';
 import { CanvasRenderer } from './canvas';
 import { FeatureTree, DimensionFeature } from '../core/feature';
+import { worldToScreen } from '../core/viewport';
 
 export class DimensionTool {
-    private startPt: {x: number, y: number} | null = null;
+    private startWorldPt: {x: bigint, y: bigint} | null = null;
     private startVid: string | undefined = undefined;
     private featureIdCounter = 0;
 
@@ -12,64 +13,68 @@ export class DimensionTool {
         private featureTree: FeatureTree
     ) {}
 
-    onMouseDown(snap: {modelPt: {x:number, y:number}, vertexId?: string}) {
-        this.startPt = snap.modelPt;
+    onMouseDown(snap: {worldX: bigint, worldY: bigint, vertexId?: string}) {
+        this.startWorldPt = { x: snap.worldX, y: snap.worldY };
         this.startVid = snap.vertexId;
     }
 
-    onMouseMove(screenPt: {x: number, y: number}, snap: {modelPt: {x:number, y:number}}) {
-        if (!this.startPt) return;
+    onMouseMove(screenPt: {x: number, y: number}, snap: {worldX: bigint, worldY: bigint}) {
+        if (!this.startWorldPt) return;
 
-        const endModel = snap.modelPt;
-        const dist = Math.hypot(endModel.x - this.startPt.x, endModel.y - this.startPt.y);
+        const p1 = worldToScreen(this.startWorldPt.x, this.startWorldPt.y, this.canvasRenderer.viewTransform);
+        const p2 = { sx: screenPt.x, sy: screenPt.y };
 
-        const pt1 = this.canvasRenderer.transformer.modelToScreen(this.startPt.x, this.startPt.y);
-        const pt2 = screenPt;
+        const dx = Number(snap.worldX - this.startWorldPt.x);
+        const dy = Number(snap.worldY - this.startWorldPt.y);
+        const distMm = Math.hypot(dx, dy) / 1000;
 
         // Visual feedback
         const group = new paper.Group();
         
-        const line = new paper.Path.Line(new paper.Point(pt1.x, pt1.y), new paper.Point(pt2.x, pt2.y));
+        const line = new paper.Path.Line(new paper.Point(p1.sx, p1.sy), new paper.Point(p2.sx, p2.sy));
         line.strokeColor = new paper.Color('#ffaa00');
-        line.strokeWidth = 1;
+        line.strokeWidth = 1.5;
         line.dashArray = [2, 2];
         group.addChild(line);
 
-        const text = new paper.PointText(new paper.Point((pt1.x + pt2.x) / 2, (pt1.y + pt2.y) / 2 - 10));
-        text.content = `${dist.toFixed(2)} mm`;
+        const text = new paper.PointText(new paper.Point((p1.sx + p2.sx) / 2, (p1.sy + p2.sy) / 2 - 10));
+        text.content = `${distMm.toFixed(2)} mm`;
         text.fillColor = new paper.Color('#ffaa00');
         text.fontSize = 12;
         text.justification = 'center';
         group.addChild(text);
 
-        this.canvasRenderer.drawFeedback(group, 'none', {x: 0, y: 0});
+        this.canvasRenderer.drawFeedback(group, 'none', {x: 0n, y: 0n});
     }
 
-    onMouseUp(snap: {modelPt: {x:number, y:number}, vertexId?: string}) {
-        if (!this.startPt) return;
+    onMouseUp(snap: {worldX: bigint, worldY: bigint, vertexId?: string}) {
+        if (!this.startWorldPt) return;
 
-        const endModel = snap.modelPt;
-        const dist = Math.hypot(endModel.x - this.startPt.x, endModel.y - this.startPt.y);
+        const dx = Number(snap.worldX - this.startWorldPt.x);
+        const dy = Number(snap.worldY - this.startWorldPt.y);
+        const distMm = Math.hypot(dx, dy) / 1000;
 
-        if (dist > 0.1) {
+        if (distMm > 0.001) {
             const fId = `dim_${Date.now()}_${this.featureIdCounter++}`;
-            const label = `${dist.toFixed(2)} mm`;
-            // Sticky logic: store v1Id and v2Id if they exist
-            this.featureTree.addFeature(new DimensionFeature(
-                fId, 
-                this.startPt.x, this.startPt.y, 
-                endModel.x, endModel.y, 
+            const label = `${distMm.toFixed(2)} mm`;
+            
+            // Feature expects properties in mm for core compatibility (legacy bridge)
+            const dimFeature = new DimensionFeature(
+                fId,
+                Number(this.startWorldPt.x) / 1000, Number(this.startWorldPt.y) / 1000,
+                Number(snap.worldX) / 1000, Number(snap.worldY) / 1000,
                 label,
                 this.startVid,
                 snap.vertexId
-            ));
+            );
             
+            this.featureTree.addFeature(dimFeature);
             const graph = this.featureTree.rebuild();
             this.canvasRenderer.updateGraph(graph);
         }
 
-        this.startPt = null;
+        this.startWorldPt = null;
         this.startVid = undefined;
-        this.canvasRenderer.drawFeedback(null, 'none', {x: 0, y: 0});
+        this.canvasRenderer.drawFeedback(null, 'none', {x: 0n, y: 0n});
     }
 }

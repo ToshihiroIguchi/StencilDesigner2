@@ -1,5 +1,5 @@
 import { ModelGraph } from './graph';
-import type { VertexId, EdgeId } from './graph';
+import type { ID } from './graph';
 
 /**
  * Hoffmann, C. M., & Joan-Arinyo, R. (2005). A brief on constraint solving. Computer-Aided Design and Applications, 2(5), 655-663.
@@ -25,14 +25,14 @@ import type { VertexId, EdgeId } from './graph';
  */
 
 // DLST (Deterministic Lexicographical Spanning Tree)
-export function computeDLST(graph: ModelGraph): Set<EdgeId> {
-  const treeEdges = new Set<EdgeId>();
+export function computeDLST(graph: ModelGraph): Set<ID> {
+  const treeEdges = new Set<ID>();
   if (graph.vertices.size === 0) return treeEdges;
 
   const sortedVertexIds = Array.from(graph.vertices.keys()).sort();
   const startNode = sortedVertexIds[0];
 
-  const visited = new Set<VertexId>();
+  const visited = new Set<ID>();
   visited.add(startNode);
 
   const edges = Array.from(graph.edges.values());
@@ -40,8 +40,8 @@ export function computeDLST(graph: ModelGraph): Set<EdgeId> {
   while (visited.size < graph.vertices.size) {
     const candidateEdges = edges.filter(e => {
       if (treeEdges.has(e.id)) return false;
-      const uIn = visited.has(e.u);
-      const vIn = visited.has(e.v);
+      const uIn = visited.has(e.v1);
+      const vIn = visited.has(e.v2);
       return (uIn && !vIn) || (!uIn && vIn);
     });
 
@@ -51,19 +51,19 @@ export function computeDLST(graph: ModelGraph): Set<EdgeId> {
     
     const chosen = candidateEdges[0];
     treeEdges.add(chosen.id);
-    visited.add(visited.has(chosen.u) ? chosen.v : chosen.u);
+    visited.add(visited.has(chosen.v1) ? chosen.v2 : chosen.v1);
   }
 
   return treeEdges;
 }
 
 // Fundamental Circuit Extraction (基本回路抽出)
-export function extractFundamentalCircuits(graph: ModelGraph, treeEdges: Set<EdgeId>): VertexId[][] {
-  const circuits: VertexId[][] = [];
+export function extractFundamentalCircuits(graph: ModelGraph, treeEdges: Set<ID>): ID[][] {
+  const circuits: ID[][] = [];
   
   for (const edge of graph.edges.values()) {
     if (!treeEdges.has(edge.id)) {
-      const path = findPathInTree(graph, treeEdges, edge.u, edge.v);
+      const path = findPathInTree(graph, treeEdges, edge.v1, edge.v2);
       if (path && path.length > 0) {
         circuits.push(path);
       }
@@ -72,9 +72,9 @@ export function extractFundamentalCircuits(graph: ModelGraph, treeEdges: Set<Edg
   return circuits;
 }
 
-function findPathInTree(graph: ModelGraph, treeEdges: Set<EdgeId>, start: VertexId, end: VertexId): VertexId[] | null {
-  const queue: { current: VertexId; path: VertexId[] }[] = [{ current: start, path: [start] }];
-  const visited = new Set<VertexId>([start]);
+function findPathInTree(graph: ModelGraph, treeEdges: Set<ID>, start: ID, end: ID): ID[] | null {
+  const queue: { current: ID; path: ID[] }[] = [{ current: start, path: [start] }];
+  const visited = new Set<ID>([start]);
 
   while (queue.length > 0) {
     const { current, path } = queue.shift()!;
@@ -83,9 +83,9 @@ function findPathInTree(graph: ModelGraph, treeEdges: Set<EdgeId>, start: Vertex
     for (const edge of graph.edges.values()) {
       if (!treeEdges.has(edge.id)) continue;
       
-      let next: VertexId | null = null;
-      if (edge.u === current) next = edge.v;
-      else if (edge.v === current) next = edge.u;
+      let next: ID | null = null;
+      if (edge.v1 === current) next = edge.v2;
+      else if (edge.v2 === current) next = edge.v1;
 
       if (next && !visited.has(next)) {
         visited.add(next);
@@ -132,7 +132,7 @@ function hasOverconstrainedSubgraph(graph: ModelGraph): boolean {
 
     let eCount = 0;
     for (const edge of edges) {
-        if (subsetVertices.has(edge.u) && subsetVertices.has(edge.v)) {
+        if (subsetVertices.has(edge.v1) && subsetVertices.has(edge.v2)) {
             eCount++;
         }
     }
