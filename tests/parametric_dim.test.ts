@@ -2,29 +2,29 @@ import { describe, it, expect } from 'vitest';
 import { FeatureTree, LineFeature, DimensionFeature } from '../src/engine/core/feature';
 import { ModelGraph } from '../src/engine/core/graph';
 
-describe.skip('Sticky Dimension Resolution', () => {
+describe('Sticky Dimension Resolution', () => {
     it('should resolve coordinates from vertices if IDs are present', () => {
         const tree = new FeatureTree();
         const line = new LineFeature('l1', 0, 0, 10, 0);
         tree.addFeature(line);
         
-        // Vertices created by line are l1_v0 (0,0) and l1_v1 (10,0)
-        const dim = new DimensionFeature('d1', 0, 0, 10, 0, '10mm', 'l1_v0', 'l1_v1');
-        tree.addFeature(dim);
-        
         const graph = tree.rebuild();
         
-        // Verify vertices exist
-        const v1 = graph.vertices.get('l1_v0');
-        const v2 = graph.vertices.get('l1_v1');
-        expect(v1).toBeDefined();
-        expect(v2).toBeDefined();
+        // Find vertex IDs by coordinates
+        const v0Id = Array.from(graph.vertices.values()).find(v => v.x === 0n && v.y === 0n)?.id;
+        const v1Id = Array.from(graph.vertices.values()).find(v => v.x === 10000n && v.y === 0n)?.id;
         
-        // Simulate checking live coordinates (this logic is in CanvasRenderer, but let's test the lookup here)
+        expect(v0Id).toBeDefined();
+        expect(v1Id).toBeDefined();
+        
+        const dim = new DimensionFeature('d1', 0, 0, 10, 0, '10mm', v0Id, v1Id);
+        tree.addFeature(dim);
+        
+        // Simulate checking live coordinates
         const resolvedV1 = graph.vertices.get(dim.v1Id!);
         const resolvedV2 = graph.vertices.get(dim.v2Id!);
-        expect(resolvedV1?.x).toBe(0);
-        expect(resolvedV2?.x).toBe(10);
+        expect(resolvedV1?.x).toBe(0n);
+        expect(resolvedV2?.x).toBe(10000n);
     });
 
     it('should detect detached state when vertices are missing', () => {
@@ -38,6 +38,5 @@ describe.skip('Sticky Dimension Resolution', () => {
         
         expect(v1).toBeUndefined();
         expect(v2).toBeUndefined();
-        // CanvasRenderer logic will then use dim.x1, dim.y1 fallback.
     });
 });

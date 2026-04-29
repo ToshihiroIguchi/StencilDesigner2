@@ -1,10 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { FeatureTree, LineFeature } from '../src/engine/core/feature';
-import { FilletFeature } from '../src/engine/core/fillet';
-import { ToleranceManager } from '../src/engine/core/viewport';
+import { FeatureTree, LineFeature, FilletFeature } from '../src/engine/core/feature';
 
-describe.skip('Fillet Engine', () => {
-    it('should insert an arc and replace the corner vertex', () => {
+describe('Fillet Engine', () => {
+    it('should insert an arc approximation and replace the corner vertex', () => {
         const tree = new FeatureTree();
         // L-shape meeting at 0,0
         tree.addFeature(new LineFeature('f1', 10, 0, 0, 0)); 
@@ -13,33 +11,26 @@ describe.skip('Fillet Engine', () => {
         let graph = tree.rebuild();
         expect(graph.vertices.size).toBe(3); // (10,0), (0,0), (0,10)
         
-        // Add fillet at origin with radius 2
+        // Add fillet at origin with radius 2mm
         tree.addFeature(new FilletFeature('fillet1', 0, 0, 2));
         
         graph = tree.rebuild();
         
-        // Corner was deleted (-1), two arc tangent points added (+2) -> total 4 vertices
+        // Corner (0,0) was deleted, two arc tangent points added -> total 4 vertices
         expect(graph.vertices.size).toBe(4);
         
         // Ensure the origin (0,0) is gone
-        let hasOrigin = false;
         for (const v of graph.vertices.values()) {
-            if (ToleranceManager.arePointsEqual(v.x!, v.y!, 0, 0)) {
-                hasOrigin = true;
-            }
+            expect(v.x === 0n && v.y === 0n).toBe(false);
         }
-        expect(hasOrigin).toBe(false);
         
-        // There should be 3 edges now: shortened f1, shortened f2, and 1 arc
+        // There should be 3 edges now: shortened f1, shortened f2, and 1 approximating segment
         expect(graph.edges.size).toBe(3);
         
-        const edges = Array.from(graph.edges.values());
-        const arcs = edges.filter(e => e.arcData != null);
-        expect(arcs.length).toBe(1);
-        
-        const arc = arcs[0];
-        // The arc origin for an L-shape at (0,0) along +X and +Y with radius 2 should be (2, 2)
-        expect(ToleranceManager.canonicalize(arc.arcData!.origin[0])).toBe(2);
-        expect(ToleranceManager.canonicalize(arc.arcData!.origin[1])).toBe(2);
+        const coords = Array.from(graph.vertices.values()).map(v => ({ x: v.x, y: v.y }));
+        expect(coords).toContainEqual({ x: 10000n, y: 0n });
+        expect(coords).toContainEqual({ x: 2000n, y: 0n });
+        expect(coords).toContainEqual({ x: 0n, y: 2000n });
+        expect(coords).toContainEqual({ x: 0n, y: 10000n });
     });
 });

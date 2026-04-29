@@ -1,4 +1,5 @@
 import { ModelGraph, insertLine, LinearSpatialIndex, type SpatialIndex } from './graph';
+export { FilletFeature } from './fillet';
 
 export type FeatureId = string;
 
@@ -210,9 +211,8 @@ export class FeatureTree {
             if (f.type === 'Circle') return new CircleFeature(f.id, f.cx, f.cy, f.r);
             if (f.type === 'Trim') return new TrimFeature(f.id, f.targetX, f.targetY);
             if (f.type === 'Dim') return new DimensionFeature(f.id, f.x1, f.y1, f.x2, f.y2, f.label, f.v1Id, f.v2Id);
-            // Fillet/Array are usually modifiers or intermediate.
-            // Note: FilletFeature is imported/defined in fillet.ts, but let's check.
-            return f; // Fallback for simple objects
+            if (f.type === 'Fillet') return new FilletFeature(f.id, f.targetX, f.targetY, f.radius);
+            return f; 
         });
     }
 
