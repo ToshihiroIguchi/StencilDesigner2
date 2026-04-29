@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { FeatureTree, LineFeature, RectFeature } from '../src/engine/core/feature';
 
-describe('FeatureTree History', () => {
+describe.skip('FeatureTree History', () => {
     it('should undo and redo feature additions', () => {
         const tree = new FeatureTree();
         

@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { FeatureTree, LineFeature, RectFeature } from '../src/engine/core/feature';
 import { FeatureEditor } from '../src/engine/core/editing';
-import { ToleranceManager } from '../src/engine/core/viewport';
 
 describe('Phase 4: Numerical Constraint & Precision', () => {
-    it('should update Rect size with $10^-9$ precision and rebuild graph', () => {
+    it('should update Rect size with 1μm precision and rebuild graph', () => {
         const tree = new FeatureTree();
         const editor = new FeatureEditor(tree);
         const fId = 'test_rect';
@@ -20,15 +19,14 @@ describe('Phase 4: Numerical Constraint & Precision', () => {
         editor.updateFeatureParameter(fId, 'width', newWidth);
         graph = tree.rebuild();
         
-        // Find the vertex that should have moved (x2)
-        const vertices = Array.from(graph.vertices.values());
-        const maxX = Math.max(...vertices.map(v => v.x!));
+        // Find the vertex that should have moved (maxX)
+        // 25.123456... mm should be 25123μm (BigInt)
+        let maxX = -999999999n;
+        for (const v of graph.vertices.values()) {
+            if (v.x > maxX) maxX = v.x;
+        }
         
-        // Truth check: ToleranceManager should have canonicalized if we added it to Editor
-        // In our current implementation we rely on canonicalization during rebuild or screen mapping.
-        // Let's check the raw coordinate in FeatureTree first.
-        const rect = tree.features[0] as any;
-        expect(Math.abs(rect.x2 - rect.x1)).toBeCloseTo(newWidth, 9);
+        expect(maxX).toBe(25123n); 
     });
 
     it('should update Line length maintaining its angle', () => {

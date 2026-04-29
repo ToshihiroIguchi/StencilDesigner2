@@ -1,28 +1,27 @@
 import { describe, it, expect } from 'vitest';
-import { ViewState, CoordinateTransformer } from '../src/engine/core/viewport';
+import { ViewTransform, worldToScreen, screenToWorld } from '../src/engine/core/viewport';
 
 describe('Coordinate Transformation', () => {
     it('should accurately invert from Model to Screen and back to Model', () => {
-        const viewState = new ViewState(500, 300, 25.5);
-        const transformer = new CoordinateTransformer(viewState);
+        const view: ViewTransform = { offsetX: 500, offsetY: 300, scale: 0.1 };
 
-        const originalModelX = 12.345678;
-        const originalModelY = -9.876543;
+        const originalModelX = 12345n; // μm
+        const originalModelY = -9876n; // μm
 
-        const screenStr = transformer.modelToScreen(originalModelX, originalModelY);
-        
-        const resultModel = transformer.screenToModel(screenStr.x, screenStr.y);
+        const screenPt = worldToScreen(originalModelX, originalModelY, view);
+        const resultModel = screenToWorld(screenPt.sx, screenPt.sy, view);
 
-        expect(Math.abs(resultModel.x - originalModelX)).toBeLessThan(1e-5);
-        expect(Math.abs(resultModel.y - originalModelY)).toBeLessThan(1e-5);
+        expect(resultModel.x).toBe(originalModelX);
+        expect(resultModel.y).toBe(originalModelY);
     });
     
     it('should correctly map Y-up to Y-down', () => {
-        const viewState = new ViewState(0, 0, 10);
-        const transformer = new CoordinateTransformer(viewState);
+        const view: ViewTransform = { offsetX: 0, offsetY: 0, scale: 0.1 };
         
-        const screenStr = transformer.modelToScreen(10, 10);
-        expect(screenStr.x).toBe(100);
-        expect(screenStr.y).toBe(-100); 
+        // 1000μm = 1mm. At scale 0.1 (px per μm), it should be 100px.
+        const screenPt = worldToScreen(1000n, 1000n, view);
+        expect(screenPt.sx).toBe(100);
+        // y is inverted in screen space: offsetY - (y * scale) -> 0 - 100 = -100
+        expect(screenPt.sy).toBe(-100); 
     });
 });

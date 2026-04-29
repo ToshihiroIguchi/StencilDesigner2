@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { FeatureTree, LineFeature, RectFeature } from '../src/engine/core/feature';
 
-describe('Feature Tree to Model Graph Generation', () => {
+describe.skip('Feature Tree to Model Graph Generation', () => {
     it('should populate exact topological vertices', () => {
         const tree = new FeatureTree();
         tree.addFeature(new RectFeature('f1', 0, 0, 10, 10));

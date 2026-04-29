@@ -1,44 +1,36 @@
 import { describe, it, expect } from 'vitest';
-import { ModelGraph } from '../src/engine/core/graph';
-import { SnapEngine } from '../src/engine/core/snap';
-import { CoordinateTransformer, ViewState } from '../src/engine/core/viewport';
+import { ModelGraph, createRawVertex, createRawEdge, LinearSpatialIndex } from '../src/engine/core/graph';
+import { resolveSnapToVertex } from '../src/engine/core/snap';
 
 describe('Snap Engine Tolerance & Logic', () => {
     it('should perfectly snap to Endpoint within tolerance', () => {
         const graph = new ModelGraph();
-        graph.addVertex('v1', 10.0, 10.0);
+        const spatial = new LinearSpatialIndex(graph);
         
-        const viewState = new ViewState(0, 0, 10); // 10px = 1mm
-        const transformer = new CoordinateTransformer(viewState);
-        const engine = new SnapEngine(graph, transformer, viewState);
-
-        // Near endpoint. Model pt roughly 9.5, 9.8.
-        // Screen radius is default 10px -> 1mm model radius
-        const screenPt = transformer.modelToScreen(9.9, 9.9);
-        const res = engine.snap(screenPt.x, screenPt.y, 10);
+        // 10mm coordinates
+        createRawVertex(graph, spatial, 10000n, 10000n);
+        
+        // Search near the vertex
+        const res = resolveSnapToVertex(graph, 9900n, 9900n, 500n, 5000n);
         
         expect(res.type).toBe('endpoint');
-        expect(res.modelPt.x).toBe(10.0);
-        expect(res.modelPt.y).toBe(10.0);
-        
-        expect(Math.abs(res.modelPt.x - 10.0)).toBeLessThan(1e-5);
+        expect(res.worldX).toBe(10000n);
+        expect(res.worldY).toBe(10000n);
     });
 
     it('should snap to Midpoint if Endpoint is too far', () => {
         const graph = new ModelGraph();
-        graph.addVertex('v1', 0, 0);
-        graph.addVertex('v2', 10, 0);
-        graph.addEdge('e1', 'v1', 'v2');
+        const spatial = new LinearSpatialIndex(graph);
         
-        const viewState = new ViewState(0, 0, 10);
-        const transformer = new CoordinateTransformer(viewState);
-        const engine = new SnapEngine(graph, transformer, viewState);
-
-        const screenPt = transformer.modelToScreen(4.8, 0.1);
-        const res = engine.snap(screenPt.x, screenPt.y, 10);
+        const v1 = createRawVertex(graph, spatial, 0n, 0n);
+        const v2 = createRawVertex(graph, spatial, 10000n, 0n);
+        createRawEdge(graph, spatial, v1, v2);
+        
+        // Search near the midpoint (5000n, 0n)
+        const res = resolveSnapToVertex(graph, 4900n, 100n, 500n, 5000n);
         
         expect(res.type).toBe('midpoint');
-        expect(res.modelPt.x).toBe(5.0);
-        expect(res.modelPt.y).toBe(0.0);
+        expect(res.worldX).toBe(5000n);
+        expect(res.worldY).toBe(0n);
     });
 });

@@ -121,8 +121,8 @@ export function computeSegmentIntersectionT(
     const det = vx * wy - vy * wx;
     if (det === 0n) return null;
 
-    let t1Num = wy * ux - wx * uy;
-    let t2Num = vy * ux - vx * uy;
+    let t1Num = wx * uy - wy * ux;
+    let t2Num = vx * uy - vy * ux;
     let den = det;
 
     if (den < 0n) {

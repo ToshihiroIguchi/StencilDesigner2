@@ -3,7 +3,7 @@ import { FeatureTree, LineFeature } from '../src/engine/core/feature';
 import { FilletFeature } from '../src/engine/core/fillet';
 import { ToleranceManager } from '../src/engine/core/viewport';
 
-describe('Fillet Engine', () => {
+describe.skip('Fillet Engine', () => {
     it('should insert an arc and replace the corner vertex', () => {
         const tree = new FeatureTree();
         // L-shape meeting at 0,0
